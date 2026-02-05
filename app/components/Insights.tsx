@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { StationSummary, PredictionResult, EnvironmentalData } from '@/lib/types';
 import { getWaterQualityColor } from '@/lib/data';
 
@@ -37,16 +37,7 @@ export default function Insights({
     }
   }, []);
 
-  // Generate insights when station, prediction, or envData changes
-  useEffect(() => {
-    if (selectedStation) {
-      generateInsights();
-    } else {
-      setInsights('');
-    }
-  }, [selectedStation, prediction, envData]);
-
-  const generateInsights = () => {
+  const generateInsights = useCallback(() => {
     if (!selectedStation) {
       setInsights('');
       return;
@@ -136,7 +127,16 @@ export default function Insights({
 
     const fullInsights = `${summary}\n\n${factors}\n\n${forecast}`;
     setInsights(fullInsights);
-  };
+  }, [selectedStation, prediction, envData]);
+
+  // Generate insights when station, prediction, or envData changes
+  useEffect(() => {
+    if (selectedStation) {
+      generateInsights();
+    } else {
+      setInsights('');
+    }
+  }, [selectedStation, prediction, envData, generateInsights]);
 
   const addToFavorites = () => {
     if (!selectedStation) return;

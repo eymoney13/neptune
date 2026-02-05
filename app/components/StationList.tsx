@@ -84,7 +84,7 @@ export default function StationList({ stations, selectedStation, onStationSelect
             </div>
           ) : filteredAndSorted.length === 0 ? (
             <div className="text-center text-gray-500 py-8 px-4">
-              <p className="text-sm">No stations found matching "{searchQuery}"</p>
+              <p className="text-sm">No stations found matching &quot;{searchQuery}&quot;</p>
             </div>
           ) : (
             <div className="p-2 space-y-1">

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
+import Image from 'next/image';
 import { StationSummary, WaterQualityRecord, PredictionResult, EnvironmentalData } from '@/lib/types';
 import { getCachedStationSummaries, loadCSVData, getStationRecords } from '@/lib/data';
 import Insights from './components/Insights';
@@ -172,9 +173,11 @@ export default function Home() {
           <div className="flex items-center">
             {/* Logo */}
             <div className="flex items-center">
-              <img
+              <Image
                 src="/logo.jpg"
                 alt="Project Neptune"
+                width={64}
+                height={64}
                 className="h-16 w-auto object-contain"
               />
             </div>
