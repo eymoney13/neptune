@@ -86,14 +86,42 @@ async function fetchRecordsFallback(
   const validRecords = allRecords.filter((record: any) => {
     const lat = record[latField];
     const lon = record[lonField];
-    return lat != null && lon != null && 
-           lat !== '' && lon !== '' &&
-           lat !== 'NR' && lon !== 'NR' && 
-           !isNaN(parseFloat(String(lat))) && !isNaN(parseFloat(String(lon))) &&
-           parseFloat(String(lat)) !== 0 && parseFloat(String(lon)) !== 0;
+    
+    // Check if values exist and are valid
+    if (lat == null || lon == null) return false;
+    if (lat === '' || lon === '') return false;
+    if (lat === 'NR' || lon === 'NR') return false;
+    
+    // Try to parse as numbers
+    const latNum = parseFloat(String(lat));
+    const lonNum = parseFloat(String(lon));
+    
+    if (isNaN(latNum) || isNaN(lonNum)) return false;
+    if (latNum === 0 && lonNum === 0) return false; // Invalid coordinates
+    
+    // Valid latitude range: -90 to 90
+    // Valid longitude range: -180 to 180
+    if (latNum < -90 || latNum > 90) return false;
+    if (lonNum < -180 || lonNum > 180) return false;
+    
+    return true;
   });
   
-  console.log(`Found ${validRecords.length} valid records with coordinates`);
+  console.log(`Found ${validRecords.length} valid records with coordinates (from ${allRecords.length} total)`);
+  
+  // Debug: Show sample of invalid records if we have no valid ones
+  if (validRecords.length === 0 && allRecords.length > 0) {
+    const sample = allRecords[0];
+    console.log(`Sample record fields:`, Object.keys(sample).slice(0, 10));
+    console.log(`Sample lat/lon values:`, {
+      latField,
+      lonField,
+      lat: sample[latField],
+      lon: sample[lonField],
+      latType: typeof sample[latField],
+      lonType: typeof sample[lonField]
+    });
+  }
   
   // Deduplicate by location key, keeping latest by date
   const seen = new Map<string, any>();
@@ -138,9 +166,17 @@ export async function GET(req: NextRequest) {
       throw new Error(`Failed to connect to CKAN API: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
 
-    // 2) Identify lat/lon fields (common names)
-    const latField = pickFirst(fields, ["target_latitude", "latitude", "lat", "dec_lat", "decimal_latitude", "station_latitude", "sample_latitude"]);
-    const lonField = pickFirst(fields, ["target_longitude", "longitude", "lon", "lng", "dec_lon", "decimal_longitude", "station_longitude", "sample_longitude"]);
+    // 2) Identify lat/lon fields (common names - check both lowercase and capitalized)
+    const latField = pickFirst(fields, [
+      "TargetLatitude", "target_latitude", "targetlatitude",
+      "Latitude", "latitude", "lat", 
+      "dec_lat", "decimal_latitude", "station_latitude", "sample_latitude"
+    ]);
+    const lonField = pickFirst(fields, [
+      "TargetLongitude", "target_longitude", "targetlongitude",
+      "Longitude", "longitude", "lon", "lng", 
+      "dec_lon", "decimal_longitude", "station_longitude", "sample_longitude"
+    ]);
 
     if (!latField || !lonField) {
       throw new Error(`Could not identify latitude/longitude fields. Available fields: ${fields.slice(0, 10).join(', ')}...`);
