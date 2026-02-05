@@ -56,7 +56,28 @@ export default function Home() {
         console.error('Error loading data:', err);
         
         // Provide more helpful error message
-        if (errorMessage.includes('Failed to parse CSV') || errorMessage.includes('too long')) {
+        if (errorMessage.includes('Failed to parse CSV') || errorMessage.includes('Not Found') || errorMessage.includes('404')) {
+          const isProduction = typeof window !== 'undefined' && window.location.hostname !== 'localhost';
+          if (isProduction && !process.env.NEXT_PUBLIC_CSV_URL) {
+            setError(`CSV file not found. Please configure the NEXT_PUBLIC_CSV_URL environment variable in Vercel:
+            
+1. Go to your Vercel project settings
+2. Navigate to Environment Variables
+3. Add: NEXT_PUBLIC_CSV_URL = [your Cloudflare R2 URL]
+4. Redeploy your application
+
+See QUICK_R2_SETUP.md for detailed instructions.`);
+          } else {
+            setError(`CSV file not found. ${errorMessage.includes('Not Found') ? 'The file may not be available or the URL is incorrect.' : 'Parsing may take several minutes for large files.'}
+            
+If this is a production deployment:
+- Make sure NEXT_PUBLIC_CSV_URL is set in Vercel environment variables
+- Verify the CSV file is accessible at the configured URL
+- Check that Cloudflare R2 (or your CDN) is properly configured
+
+Original error: ${errorMessage}`);
+          }
+        } else if (errorMessage.includes('too long')) {
           setError(`CSV file is very large (341MB). Parsing may take several minutes. If it continues to fail, consider:
           - Using a smaller sample of the data
           - Processing the CSV server-side before deployment

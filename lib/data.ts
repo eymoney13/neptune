@@ -22,6 +22,11 @@ export async function loadCSVData(): Promise<WaterQualityRecord[]> {
       // Use environment variable for CSV URL, fallback to local file for development
       const csvUrl = process.env.NEXT_PUBLIC_CSV_URL || '/safetoswim_geomeans_2020-present.csv';
       
+      // Check if we're in production and environment variable is not set
+      if (typeof window !== 'undefined' && !process.env.NEXT_PUBLIC_CSV_URL && csvUrl.startsWith('/')) {
+        console.warn('NEXT_PUBLIC_CSV_URL environment variable is not set. The CSV file may not be available in production.');
+      }
+      
       Papa.parse(csvUrl, {
         download: true,
         header: true,
