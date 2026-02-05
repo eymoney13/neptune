@@ -40,13 +40,13 @@ function requireField(found: string | null, label: string) {
   return found;
 }
 
-// Use regular datastore_search (more reliable than SQL)
+  // Use regular datastore_search (more reliable than SQL)
 async function fetchRecordsFallback(
   resourceId: string,
   latField: string,
   lonField: string,
   locationKeyField: string,
-  nameField: string | null,
+  nameField: string, // Changed: nameField is required, not nullable
   dateField: string,
   resultField: string | null,
   max: number
