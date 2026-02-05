@@ -23,8 +23,8 @@ export async function loadCSVData(): Promise<WaterQualityRecord[]> {
     const timeoutId = setTimeout(() => controller.abort(), 55000); // 55 seconds to be safe
     
     // Use max parameter to get unique stations (new optimized API)
-    // Default to 5000 unique stations - should show all locations
-    const max = 5000;
+    // Start with 2000 to avoid timeouts, can be increased if needed
+    const max = 2000;
     
     const response = await fetch(`${baseUrl}/api/water-quality?max=${max}`, {
       headers: {

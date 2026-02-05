@@ -40,7 +40,7 @@ function requireField(found: string | null, label: string) {
   return found;
 }
 
-// Fallback: Use regular datastore_search if SQL fails
+// Use regular datastore_search (more reliable than SQL)
 async function fetchRecordsFallback(
   resourceId: string,
   latField: string,
@@ -51,134 +51,134 @@ async function fetchRecordsFallback(
   resultField: string | null,
   max: number
 ): Promise<any[]> {
-  console.log(`Using fallback method: fetching ${max} records...`);
-  const limit = Math.min(max * 2, 10000); // Fetch more to account for duplicates
-  const json = await ckan("datastore_search", {
-    resource_id: resourceId,
-    limit: limit.toString(),
-  });
+  console.log(`Fetching records using datastore_search...`);
+  // Fetch in smaller chunks to avoid timeout
+  const chunkSize = 1000;
+  const chunksNeeded = Math.ceil(max / chunkSize);
+  const allRecords: any[] = [];
   
-  const allRecords = json?.result?.records ?? [];
+  for (let i = 0; i < chunksNeeded && allRecords.length < max * 2; i++) {
+    try {
+      const json = await ckan("datastore_search", {
+        resource_id: resourceId,
+        limit: chunkSize.toString(),
+        offset: (i * chunkSize).toString(),
+      });
+      
+      const records = json?.result?.records ?? [];
+      if (records.length === 0) break; // No more records
+      
+      allRecords.push(...records);
+      
+      // If we got fewer records than requested, we're done
+      if (records.length < chunkSize) break;
+    } catch (error) {
+      console.warn(`Error fetching chunk ${i}:`, error);
+      // Continue with what we have
+      if (allRecords.length === 0) throw error;
+      break;
+    }
+  }
+  
+  console.log(`Fetched ${allRecords.length} total records, filtering...`);
   
   // Filter valid records
   const validRecords = allRecords.filter((record: any) => {
     const lat = record[latField];
     const lon = record[lonField];
-    return lat && lon && lat !== 'NR' && lon !== 'NR' && 
-           !isNaN(parseFloat(lat)) && !isNaN(parseFloat(lon)) &&
-           parseFloat(lat) !== 0 && parseFloat(lon) !== 0;
+    return lat != null && lon != null && 
+           lat !== '' && lon !== '' &&
+           lat !== 'NR' && lon !== 'NR' && 
+           !isNaN(parseFloat(String(lat))) && !isNaN(parseFloat(String(lon))) &&
+           parseFloat(String(lat)) !== 0 && parseFloat(String(lon)) !== 0;
   });
+  
+  console.log(`Found ${validRecords.length} valid records with coordinates`);
   
   // Deduplicate by location key, keeping latest by date
   const seen = new Map<string, any>();
   for (const record of validRecords) {
-    const key = record[locationKeyField] || record[nameField || ''] || '';
-    if (!key) continue;
+    const key = String(record[locationKeyField] || record[nameField || ''] || '');
+    if (!key || key === 'undefined' || key === 'null') continue;
     
     const existing = seen.get(key);
     const recordDate = record[dateField];
-    if (!existing || !recordDate) {
+    if (!existing) {
       seen.set(key, record);
-    } else {
+    } else if (recordDate) {
       const existingDate = existing[dateField];
-      if (recordDate > existingDate) {
+      if (!existingDate || String(recordDate) > String(existingDate)) {
         seen.set(key, record);
       }
     }
   }
   
-  return Array.from(seen.values()).slice(0, max);
+  const uniqueRecords = Array.from(seen.values()).slice(0, max);
+  console.log(`Deduplicated to ${uniqueRecords.length} unique stations`);
+  
+  return uniqueRecords;
 }
 
 export async function GET(req: NextRequest) {
   try {
     const url = new URL(req.url);
 
-    // optional: cap markers returned (in case CKAN or UI slows down)
-    const max = Math.min(Math.max(Number(url.searchParams.get("max") ?? "5000"), 100), 20000);
+    // Start with smaller limit to avoid timeouts
+    const max = Math.min(Math.max(Number(url.searchParams.get("max") ?? "2000"), 100), 5000);
 
     console.log(`Water quality API: Fetching up to ${max} unique stations...`);
 
     // 1) Discover schema so we do not guess column names
-    const fields = await getFields(RESOURCE_2020_PRESENT);
-    console.log(`Found ${fields.length} fields in dataset`);
+    let fields: string[];
+    try {
+      fields = await getFields(RESOURCE_2020_PRESENT);
+      console.log(`Found ${fields.length} fields in dataset`);
+    } catch (error) {
+      console.error('Failed to get fields:', error);
+      throw new Error(`Failed to connect to CKAN API: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
 
     // 2) Identify lat/lon fields (common names)
-    const latField = requireField(
-      pickFirst(fields, ["latitude", "lat", "dec_lat", "decimal_latitude", "station_latitude", "sample_latitude", "target_latitude"]),
-      "latitude"
-    );
-    const lonField = requireField(
-      pickFirst(fields, ["longitude", "lon", "lng", "dec_lon", "decimal_longitude", "station_longitude", "sample_longitude", "target_longitude"]),
-      "longitude"
-    );
+    const latField = pickFirst(fields, ["target_latitude", "latitude", "lat", "dec_lat", "decimal_latitude", "station_latitude", "sample_latitude"]);
+    const lonField = pickFirst(fields, ["target_longitude", "longitude", "lon", "lng", "dec_lon", "decimal_longitude", "station_longitude", "sample_longitude"]);
+
+    if (!latField || !lonField) {
+      throw new Error(`Could not identify latitude/longitude fields. Available fields: ${fields.slice(0, 10).join(', ')}...`);
+    }
 
     // 3) Identify a stable "location key" (station/site id if present, else station name)
     const idField =
-      pickFirst(fields, ["station_id", "site_id", "location_id", "monitoring_location_id", "beach_id", "id", "station_code", "site_code"]) ?? null;
+      pickFirst(fields, ["station_code", "station_id", "site_id", "location_id", "monitoring_location_id", "beach_id", "id", "site_code"]) ?? null;
 
     const nameField =
       pickFirst(fields, ["station_name", "site_name", "location_name", "beach_name", "monitoring_location_name", "name"]) ??
       null;
 
-    const locationKeyField = idField ?? requireField(nameField, "station/site name");
+    const locationKeyField = idField || nameField || 'station_code';
+    if (!locationKeyField) {
+      throw new Error('Could not identify location key field');
+    }
 
     // 4) Identify date/time field so we can pick latest record
-    const dateField = requireField(
-      pickFirst(fields, ["sample_date", "sample_datetime", "collection_date", "collection_datetime", "date", "timestamp"]),
-      "sample date"
-    );
+    const dateField = pickFirst(fields, ["sample_date", "sample_datetime", "collection_date", "collection_datetime", "date", "timestamp"]) || 'sample_date';
 
     // Identify result field for water quality data
     const resultField = pickFirst(fields, ["result", "fecal_coliform", "value", "measurement", "cfu"]);
 
     console.log(`Identified fields: lat=${latField}, lon=${lonField}, key=${locationKeyField}, date=${dateField}`);
 
-    let records: any[] = [];
-    
-    // Try SQL query first, fallback to regular search if it fails
-    try {
-      const selectParts = [
-        `"${locationKeyField}" as location_key`,
-        nameField ? `"${nameField}" as location_name` : `"${locationKeyField}" as location_name`,
-        `"${latField}" as latitude`,
-        `"${lonField}" as longitude`,
-        `"${dateField}" as sample_date`,
-      ];
-
-      if (resultField) selectParts.push(`"${resultField}" as result`);
-
-      const sql = `
-        SELECT DISTINCT ON ("${locationKeyField}")
-          ${selectParts.join(",\n          ")}
-        FROM "${RESOURCE_2020_PRESENT}"
-        WHERE "${latField}" IS NOT NULL
-          AND "${lonField}" IS NOT NULL
-          AND CAST("${latField}" AS TEXT) <> ''
-          AND CAST("${lonField}" AS TEXT) <> ''
-          AND "${dateField}" IS NOT NULL
-        ORDER BY "${locationKeyField}", "${dateField}" DESC
-        LIMIT ${max}
-      `.trim();
-
-      console.log(`Attempting SQL query for unique stations...`);
-      const json = await ckan("datastore_search_sql", { sql });
-      records = json?.result?.records ?? [];
-      console.log(`SQL query succeeded: Found ${records.length} unique stations`);
-    } catch (sqlError) {
-      console.warn(`SQL query failed, using fallback method:`, sqlError);
-      records = await fetchRecordsFallback(
-        RESOURCE_2020_PRESENT,
-        latField,
-        lonField,
-        locationKeyField,
-        nameField,
-        dateField,
-        resultField,
-        max
-      );
-      console.log(`Fallback method found ${records.length} unique stations`);
-    }
+    // Use simpler fallback method directly (more reliable than SQL)
+    const records = await fetchRecordsFallback(
+      RESOURCE_2020_PRESENT,
+      latField,
+      lonField,
+      locationKeyField,
+      nameField,
+      dateField,
+      resultField,
+      max
+    );
+    console.log(`Found ${records.length} unique stations`);
 
     // Map to our expected format
     const mappedRecords = records.map((record: any) => {
