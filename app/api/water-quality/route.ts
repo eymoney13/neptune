@@ -129,30 +129,22 @@ async function fetchRecordsFallback(
   
   for (const record of validRecords) {
     // Use StationName as the location key
-    let key = record[locationKeyField] || 
-              record['StationName'] || 
-              record['station_name'] ||
-              '';
-    
+    let key = record[nameField] || record['StationName'] || '';
     key = String(key).trim();
     
-    // If still no key, try using lat/lon as composite key
+    // Skip if no StationName
     if (!key || key === 'undefined' || key === 'null' || key === '') {
-      const lat = String(record[latField] || '').substring(0, 8);
-      const lon = String(record[lonField] || '').substring(0, 8);
-      key = `${lat},${lon}`;
-      if (key === ',' || key === 'undefined,undefined') {
-        skippedCount++;
-        continue;
-      }
+      skippedCount++;
+      continue;
     }
     
     const existing = seen.get(key);
-    const recordDate = record[dateField];
+    const recordDate = record[dateField] || record['SampleDateTime'] || record['SampleDate'] || '';
+    
     if (!existing) {
       seen.set(key, record);
     } else if (recordDate) {
-      const existingDate = existing[dateField];
+      const existingDate = existing[dateField] || existing['SampleDateTime'] || existing['SampleDate'] || '';
       if (!existingDate || String(recordDate) > String(existingDate)) {
         seen.set(key, record);
       }
@@ -160,19 +152,19 @@ async function fetchRecordsFallback(
   }
   
   const uniqueRecords = Array.from(seen.values()).slice(0, max);
-  console.log(`Deduplicated to ${uniqueRecords.length} unique stations (skipped ${skippedCount} records without valid key)`);
+  console.log(`Deduplicated to ${uniqueRecords.length} unique stations (skipped ${skippedCount} records without StationName)`);
   
   // Debug: Show sample record if we have issues
   if (uniqueRecords.length === 0 && validRecords.length > 0) {
     const sample = validRecords[0];
-    console.log(`Sample record keys:`, {
-      locationKeyField,
-      nameField,
-      hasLocationKey: !!sample[locationKeyField],
-      hasNameField: nameField ? !!sample[nameField] : 'N/A',
-      hasStationCode: !!sample['StationCode'],
-      hasStationCodeLower: !!sample['station_code'],
-      allKeys: Object.keys(sample).slice(0, 15)
+    console.log(`Sample record (first of ${validRecords.length}):`, {
+      StationName: sample[nameField] || sample['StationName'],
+      TargetLatitude: sample[latField] || sample['TargetLatitude'],
+      TargetLongitude: sample[lonField] || sample['TargetLongitude'],
+      SampleDateTime: sample[dateField] || sample['SampleDateTime'],
+      Result: sample[resultField] || sample['Result'],
+      Unit: sample[unitField] || sample['Unit'],
+      allKeys: Object.keys(sample).slice(0, 20)
     });
   }
   
@@ -198,41 +190,27 @@ export async function GET(req: NextRequest) {
       throw new Error(`Failed to connect to CKAN API: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
 
-    // 2) Identify lat/lon fields (common names - check both lowercase and capitalized)
-    const latField = pickFirst(fields, [
-      "TargetLatitude", "target_latitude", "targetlatitude",
-      "Latitude", "latitude", "lat", 
-      "dec_lat", "decimal_latitude", "station_latitude", "sample_latitude"
-    ]);
-    const lonField = pickFirst(fields, [
-      "TargetLongitude", "target_longitude", "targetlongitude",
-      "Longitude", "longitude", "lon", "lng", 
-      "dec_lon", "decimal_longitude", "station_longitude", "sample_longitude"
-    ]);
-
-    if (!latField || !lonField) {
-      throw new Error(`Could not identify latitude/longitude fields. Available fields: ${fields.slice(0, 10).join(', ')}...`);
-    }
-
-    // 3) Identify location key - use StationName as primary key
-    const nameField =
-      pickFirst(fields, ["StationName", "station_name", "site_name", "location_name", "beach_name", "monitoring_location_name", "name"]) ??
-      null;
-
-    if (!nameField) {
-      throw new Error('Could not identify StationName field');
-    }
+    // 2) Identify specific fields we need: StationName, TargetLatitude, TargetLongitude, Result, Unit, SampleDateTime
+    const latField = requireField(
+      pickFirst(fields, ["TargetLatitude", "target_latitude"]),
+      "TargetLatitude"
+    );
+    const lonField = requireField(
+      pickFirst(fields, ["TargetLongitude", "target_longitude"]),
+      "TargetLongitude"
+    );
+    const nameField = requireField(
+      pickFirst(fields, ["StationName", "station_name"]),
+      "StationName"
+    );
+    const dateField = pickFirst(fields, ["SampleDateTime", "sample_datetime", "SampleDate", "sample_date"]) || 'SampleDate';
+    const resultField = pickFirst(fields, ["Result", "result"]);
+    const unitField = pickFirst(fields, ["Unit", "unit"]);
 
     // Use StationName as the location key for deduplication
     const locationKeyField = nameField;
 
-    // 4) Identify date/time field so we can pick latest record
-    const dateField = pickFirst(fields, ["sample_date", "sample_datetime", "collection_date", "collection_datetime", "date", "timestamp"]) || 'sample_date';
-
-    // Identify result field for water quality data
-    const resultField = pickFirst(fields, ["result", "fecal_coliform", "value", "measurement", "cfu"]);
-
-    console.log(`Identified fields: lat=${latField}, lon=${lonField}, key=${locationKeyField} (StationName), date=${dateField}`);
+    console.log(`Identified fields: StationName=${nameField}, TargetLatitude=${latField}, TargetLongitude=${lonField}, SampleDateTime=${dateField}, Result=${resultField}, Unit=${unitField}`);
 
     // Use simpler fallback method directly (more reliable than SQL)
     const records = await fetchRecordsFallback(
@@ -247,49 +225,52 @@ export async function GET(req: NextRequest) {
     );
     console.log(`Found ${records.length} unique stations`);
 
-    // Map to our expected format
+    // Map to our expected format - pull specific fields
     const mappedRecords = records.map((record: any) => {
-      // Handle both SQL result format and direct record format
-      const lat = record.latitude ?? record[latField];
-      const lon = record.longitude ?? record[lonField];
-      // Use StationName as the primary identifier
-      const name = record[locationKeyField] ?? record['StationName'] ?? record['station_name'] ?? '';
-      // Use StationName as StationCode too (since we're deduplicating by name)
-      const code = name; // Use StationName as the code
-      const date = record.sample_date ?? record[dateField] ?? '';
-      const result = record.result ?? (resultField ? record[resultField] : null);
+      // Extract the specific fields we need
+      const name = record[nameField] || record['StationName'] || '';
+      const lat = record[latField] || record['TargetLatitude'] || '';
+      const lon = record[lonField] || record['TargetLongitude'] || '';
+      const date = record[dateField] || record['SampleDateTime'] || record['SampleDate'] || '';
+      const result = record[resultField] || record['Result'] || '';
+      const unit = record[unitField] || record['Unit'] || '';
       
       return {
-        StationName: name,
-        StationCode: code, // Same as StationName
-        SampleDate: date,
-        TargetLatitude: lat?.toString() || '',
-        TargetLongitude: lon?.toString() || '',
-        Result: result?.toString() || '',
+        StationName: String(name || ''),
+        StationCode: String(name || ''), // Use StationName as code
+        SampleDate: String(date || ''),
+        TargetLatitude: String(lat || ''),
+        TargetLongitude: String(lon || ''),
+        Result: String(result || ''),
         CollectionTime: '',
-        LocationCode: code,
+        LocationCode: String(name || ''),
         Program: '',
         ParentProject: '',
         Project: '',
         Analyte: '',
-        Unit: '',
+        Unit: String(unit || ''),
         '30DayGeoMean': '',
         '30DayCount': '',
         '6WeekGeoMean': '',
         '6WeekCount': '',
         ResultQualCode: '',
       };
-    }).filter(record => 
-      record.TargetLatitude && 
-      record.TargetLongitude && 
-      record.StationName && // Ensure StationName exists
-      record.TargetLatitude !== 'NR' &&
-      record.TargetLongitude !== 'NR' &&
-      !isNaN(parseFloat(record.TargetLatitude)) &&
-      !isNaN(parseFloat(record.TargetLongitude)) &&
-      parseFloat(record.TargetLatitude) !== 0 &&
-      parseFloat(record.TargetLongitude) !== 0
-    );
+    }).filter(record => {
+      // Filter: must have StationName, valid coordinates, and Result
+      if (!record.StationName || record.StationName.trim() === '') return false;
+      if (!record.TargetLatitude || !record.TargetLongitude) return false;
+      if (record.TargetLatitude === 'NR' || record.TargetLongitude === 'NR') return false;
+      
+      const latNum = parseFloat(record.TargetLatitude);
+      const lonNum = parseFloat(record.TargetLongitude);
+      
+      if (isNaN(latNum) || isNaN(lonNum)) return false;
+      if (latNum === 0 && lonNum === 0) return false;
+      if (latNum < -90 || latNum > 90) return false;
+      if (lonNum < -180 || lonNum > 180) return false;
+      
+      return true;
+    });
 
     return NextResponse.json(
       {
