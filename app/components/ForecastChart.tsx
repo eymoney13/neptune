@@ -23,8 +23,17 @@ export default function ForecastChart({ historicalRecords, prediction, stationNa
     return `${year}-${month}-${day}`;
   };
 
+  // Define a type for chart data points
+  type ChartDataPoint = {
+    date: string;
+    result: number;
+    type: 'historical' | 'prediction';
+    rawDate: string;
+    normalizedDate: string;
+  };
+
   // Process historical data
-  const historicalData = historicalRecords
+  const historicalData: ChartDataPoint[] = historicalRecords
     .map(record => {
       const recordDate = new Date(record.SampleDate);
       const normalizedDate = normalizeDate(record.SampleDate);
@@ -49,7 +58,7 @@ export default function ForecastChart({ historicalRecords, prediction, stationNa
 
   // Determine if prediction should be shown
   // Only show if there's NO historical data for that exact date
-  let predictionData: typeof historicalData[0] | null = null;
+  let predictionData: ChartDataPoint | null = null;
   let shouldShowPrediction = false;
   
   if (prediction?.success && prediction.prediction) {
