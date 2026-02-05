@@ -1,237 +1,178 @@
 import { NextRequest, NextResponse } from "next/server";
 
 const RESOURCE_2020_PRESENT = "15a63495-8d9f-4a49-b43a-3092ef3106b9";
-const RESOURCE_2010_2020 = "04d98c22-5523-4cc1-86e7-3a6abf40bb60";
-
-// CKAN base differs across portals. Try both common forms.
-const CKAN_BASES = [
-  "https://data.ca.gov/api/3/action",
-  "https://data.ca.gov/api/action",
-];
+const CKAN_BASE = "https://data.ca.gov/api/3/action";
 
 // Mark route as dynamic
 export const dynamic = 'force-dynamic';
 
-async function ckanFetchJson(url: string) {
+async function ckan(action: string, params: Record<string, string>) {
+  const url = `${CKAN_BASE}/${action}?${new URLSearchParams(params).toString()}`;
   const res = await fetch(url, {
-    headers: { "accept": "application/json" },
-    // cache at the edge a bit for demos
+    headers: { accept: "application/json" },
+    // Helps Vercel edge caching for repeat demo loads
     next: { revalidate: 60 * 15 }, // 15 minutes
   });
-  if (!res.ok) throw new Error(`CKAN HTTP ${res.status}`);
-  return res.json();
+  if (!res.ok) throw new Error(`CKAN HTTP ${res.status} for ${action}`);
+  const json = await res.json();
+  if (!json?.success) throw new Error(`CKAN success=false for ${action}`);
+  return json;
 }
 
-async function callCkanAction(actionPath: string, params: Record<string, string>) {
-  const qs = new URLSearchParams(params).toString();
-
-  let lastErr: unknown;
-  for (const base of CKAN_BASES) {
-    try {
-      const url = `${base}/${actionPath}?${qs}`;
-      const json = await ckanFetchJson(url);
-      if (json?.success) return json;
-      lastErr = new Error(`CKAN success=false at ${url}`);
-    } catch (e) {
-      lastErr = e;
-    }
-  }
-  throw lastErr ?? new Error("CKAN request failed");
-}
-
-// Get field names fast, without guessing columns.
 async function getFields(resourceId: string): Promise<string[]> {
-  const json = await callCkanAction("datastore_search", {
-    resource_id: resourceId,
-    limit: "1",
-  });
-  const fields = json?.result?.fields?.map((f: any) => f.id).filter(Boolean);
-  if (!fields?.length) throw new Error("No fields returned. Resource may not be in DataStore.");
+  const json = await ckan("datastore_search", { resource_id: resourceId, limit: "1" });
+  const fields = (json?.result?.fields ?? []).map((f: any) => f.id).filter(Boolean);
+  if (!fields.length) throw new Error("No fields returned. Resource may not be in DataStore.");
   return fields;
 }
 
-// Fetch all records from a resource with pagination
-async function fetchAllRecords(resourceId: string, limit = 10000) {
-  const chunk = 2000; // Smaller chunks for faster response
-  const out: any[] = [];
-  const maxChunks = Math.ceil(limit / chunk);
-
-  for (let i = 0; i < maxChunks; i++) {
-    const offset = i * chunk;
-    
-    try {
-      const json = await callCkanAction("datastore_search", {
-        resource_id: resourceId,
-        limit: chunk.toString(),
-        offset: offset.toString(),
-      });
-      
-      const rows = json?.result?.records ?? [];
-      out.push(...rows);
-      
-      if (rows.length < chunk) break;
-      
-      // Safety check - don't exceed limit
-      if (out.length >= limit) {
-        return out.slice(0, limit);
-      }
-    } catch (error) {
-      console.error(`Error fetching chunk ${i + 1}:`, error);
-      // Continue with what we have if there's an error
-      if (out.length > 0) break;
-      throw error;
-    }
+function pickFirst(fields: string[], candidates: string[]) {
+  const lower = new Map(fields.map((f) => [f.toLowerCase(), f]));
+  for (const c of candidates) {
+    const hit = lower.get(c.toLowerCase());
+    if (hit) return hit;
   }
-
-  return out;
+  return null;
 }
 
-// Map CKAN field names to our expected format
-function mapCkanRecordToWaterQuality(record: any, fields: string[]): any {
-  // Common field name mappings
-  const fieldMap: Record<string, string> = {
-    'station_name': 'StationName',
-    'site_name': 'StationName',
-    'location_name': 'StationName',
-    'station_code': 'StationCode',
-    'site_code': 'StationCode',
-    'sample_date': 'SampleDate',
-    'date': 'SampleDate',
-    'collection_time': 'CollectionTime',
-    'time': 'CollectionTime',
-    'target_latitude': 'TargetLatitude',
-    'latitude': 'TargetLatitude',
-    'lat': 'TargetLatitude',
-    'target_longitude': 'TargetLongitude',
-    'longitude': 'TargetLongitude',
-    'lng': 'TargetLongitude',
-    'lon': 'TargetLongitude',
-    'result': 'Result',
-    'fecal_coliform': 'Result',
-    '30day_geomean': '30DayGeoMean',
-    '30_day_geomean': '30DayGeoMean',
-    '6week_geomean': '6WeekGeoMean',
-    '6_week_geomean': '6WeekGeoMean',
-  };
-
-  const mapped: any = {
-    Program: record.program || record.Program || '',
-    ParentProject: record.parent_project || record.ParentProject || '',
-    Project: record.project || record.Project || '',
-    StationName: '',
-    StationCode: '',
-    SampleDate: '',
-    CollectionTime: record.collection_time || record.CollectionTime || '',
-    LocationCode: record.location_code || record.LocationCode || '',
-    TargetLatitude: '',
-    TargetLongitude: '',
-    Analyte: record.analyte || record.Analyte || '',
-    Unit: record.unit || record.Unit || '',
-    Result: '',
-    '30DayGeoMean': '',
-    '30DayCount': record['30day_count'] || record['30DayCount'] || '',
-    '6WeekGeoMean': '',
-    '6WeekCount': record['6week_count'] || record['6WeekCount'] || '',
-    ResultQualCode: record.result_qual_code || record.ResultQualCode,
-  };
-
-  // Map fields using case-insensitive matching
-  const lowerFields = fields.map(f => f.toLowerCase());
-  
-  for (const [ckanField, ourField] of Object.entries(fieldMap)) {
-    const fieldIndex = lowerFields.findIndex(f => f === ckanField.toLowerCase());
-    if (fieldIndex !== -1) {
-      const actualField = fields[fieldIndex];
-      mapped[ourField] = record[actualField]?.toString() || '';
-    }
-  }
-
-  // Also try direct field name matches (case-insensitive)
-  for (const field of fields) {
-    const lowerField = field.toLowerCase();
-    if (lowerField === 'stationname' || lowerField === 'station_name' || lowerField === 'site_name') {
-      mapped.StationName = record[field]?.toString() || mapped.StationName;
-    }
-    if (lowerField === 'stationcode' || lowerField === 'station_code' || lowerField === 'site_code') {
-      mapped.StationCode = record[field]?.toString() || mapped.StationCode;
-    }
-    if (lowerField === 'sampledate' || lowerField === 'sample_date' || lowerField === 'date') {
-      mapped.SampleDate = record[field]?.toString() || mapped.SampleDate;
-    }
-    if (lowerField === 'targetlatitude' || lowerField === 'target_latitude' || lowerField === 'latitude' || lowerField === 'lat') {
-      mapped.TargetLatitude = record[field]?.toString() || mapped.TargetLatitude;
-    }
-    if (lowerField === 'targetlongitude' || lowerField === 'target_longitude' || lowerField === 'longitude' || lowerField === 'lng' || lowerField === 'lon') {
-      mapped.TargetLongitude = record[field]?.toString() || mapped.TargetLongitude;
-    }
-    if (lowerField === 'result' || lowerField === 'fecal_coliform') {
-      mapped.Result = record[field]?.toString() || mapped.Result;
-    }
-    if (lowerField === '30daygeomean' || lowerField === '30_day_geomean' || lowerField === '30day_geomean') {
-      mapped['30DayGeoMean'] = record[field]?.toString() || mapped['30DayGeoMean'];
-    }
-    if (lowerField === '6weekgeomean' || lowerField === '6_week_geomean' || lowerField === '6week_geomean') {
-      mapped['6WeekGeoMean'] = record[field]?.toString() || mapped['6WeekGeoMean'];
-    }
-  }
-
-  return mapped;
+function requireField(found: string | null, label: string) {
+  if (!found) throw new Error(`Could not identify ${label} field in the dataset schema.`);
+  return found;
 }
 
 export async function GET(req: NextRequest) {
   try {
     const url = new URL(req.url);
-    const years = Math.min(Math.max(Number(url.searchParams.get("years") ?? "5"), 1), 20);
-    // Reduce limit significantly to avoid Vercel timeout and improve performance
-    // Start with 5k records - focus on recent data
-    const limit = Math.min(Number(url.searchParams.get("limit") ?? "5000"), 10000);
-    
-    console.log(`Water quality API: Fetching ${limit} records for ${years} years`);
 
-    // Only fetch from 2020-present for speed (most recent data)
-    // Skip 2010-2020 to avoid timeout
-    const fields2020 = await getFields(RESOURCE_2020_PRESENT);
-    
-    // Fetch records from 2020-present only
-    console.log(`Fetching up to ${limit} records from 2020-present dataset...`);
-    const r2020 = await fetchAllRecords(RESOURCE_2020_PRESENT, limit);
-    const r2010: any[] = []; // Skip older data for now to improve performance
+    // optional: cap markers returned (in case CKAN or UI slows down)
+    const max = Math.min(Math.max(Number(url.searchParams.get("max") ?? "5000"), 100), 20000);
 
-    console.log(`Fetched ${r2020.length} records, mapping to format...`);
-    
-    // Map records to our format
-    const mapped2020 = r2020.map(record => mapCkanRecordToWaterQuality(record, fields2020));
-    const mapped2010: any[] = [];
+    console.log(`Water quality API: Fetching up to ${max} unique stations...`);
 
-    const combined = [...mapped2020, ...mapped2010];
+    // 1) Discover schema so we do not guess column names
+    const fields = await getFields(RESOURCE_2020_PRESENT);
 
-    // Filter out invalid records (missing required fields)
-    const validRecords = combined.filter(record => 
-      record.TargetLatitude && 
-      record.TargetLongitude && 
-      record.Result &&
-      record.TargetLatitude !== 'NR' &&
-      record.TargetLongitude !== 'NR' &&
-      !isNaN(parseFloat(record.TargetLatitude)) &&
-      !isNaN(parseFloat(record.TargetLongitude)) &&
-      parseFloat(record.TargetLatitude) !== 0 &&
-      parseFloat(record.TargetLongitude) !== 0
+    // 2) Identify lat/lon fields (common names)
+    const latField = requireField(
+      pickFirst(fields, ["latitude", "lat", "dec_lat", "decimal_latitude", "station_latitude", "sample_latitude", "target_latitude"]),
+      "latitude"
+    );
+    const lonField = requireField(
+      pickFirst(fields, ["longitude", "lon", "lng", "dec_lon", "decimal_longitude", "station_longitude", "sample_longitude", "target_longitude"]),
+      "longitude"
     );
 
-    // Cache headers for demo smoothness
+    // 3) Identify a stable "location key" (station/site id if present, else station name)
+    const idField =
+      pickFirst(fields, ["station_id", "site_id", "location_id", "monitoring_location_id", "beach_id", "id", "station_code", "site_code"]) ?? null;
+
+    const nameField =
+      pickFirst(fields, ["station_name", "site_name", "location_name", "beach_name", "monitoring_location_name", "name"]) ??
+      null;
+
+    const locationKeyField = idField ?? requireField(nameField, "station/site name");
+
+    // 4) Identify date/time field so we can pick latest record
+    const dateField = requireField(
+      pickFirst(fields, ["sample_date", "sample_datetime", "collection_date", "collection_datetime", "date", "timestamp"]),
+      "sample date"
+    );
+
+    // Identify result field for water quality data
+    const resultField = pickFirst(fields, ["result", "fecal_coliform", "value", "measurement", "cfu"]);
+
+    // Optional context fields if they exist
+    const countyField = pickFirst(fields, ["county", "county_name"]);
+    const labField = pickFirst(fields, ["lab", "lab_name"]);
+    const unitField = pickFirst(fields, ["units", "unit"]);
+
+    // 5) Query: latest sample per locationKeyField
+    // CKAN DataStore is typically backed by Postgres, so DISTINCT ON works well.
+    // We cast lat/lon to numeric defensively, and drop nulls.
+    const selectParts = [
+      `"${locationKeyField}" as location_key`,
+      nameField ? `"${nameField}" as location_name` : `"${locationKeyField}" as location_name`,
+      `"${latField}" as latitude`,
+      `"${lonField}" as longitude`,
+      `"${dateField}" as sample_date`,
+    ];
+
+    if (resultField) selectParts.push(`"${resultField}" as result`);
+    if (countyField) selectParts.push(`"${countyField}" as county`);
+    if (labField) selectParts.push(`"${labField}" as lab`);
+    if (unitField) selectParts.push(`"${unitField}" as unit`);
+
+    const sql = `
+      SELECT DISTINCT ON (location_key)
+        ${selectParts.join(",\n        ")}
+      FROM (
+        SELECT
+          "${locationKeyField}" as location_key,
+          ${nameField ? `"${nameField}" as location_name,` : ""}
+          "${latField}" as latitude,
+          "${lonField}" as longitude,
+          "${dateField}" as sample_date
+          ${resultField ? `, "${resultField}" as result` : ""}
+          ${countyField ? `, "${countyField}" as county` : ""}
+          ${labField ? `, "${labField}" as lab` : ""}
+          ${unitField ? `, "${unitField}" as unit` : ""}
+        FROM "${RESOURCE_2020_PRESENT}"
+        WHERE "${latField}" IS NOT NULL
+          AND "${lonField}" IS NOT NULL
+          AND CAST("${latField}" AS TEXT) <> ''
+          AND CAST("${lonField}" AS TEXT) <> ''
+          AND "${dateField}" IS NOT NULL
+      ) t
+      ORDER BY location_key, sample_date DESC
+      LIMIT ${max}
+    `.trim();
+
+    console.log(`Executing SQL query for unique stations...`);
+    const json = await ckan("datastore_search_sql", { sql });
+    const records = json?.result?.records ?? [];
+
+    console.log(`Found ${records.length} unique stations`);
+
+    // Map to our expected format
+    const mappedRecords = records.map((record: any) => ({
+      StationName: record.location_name || record.location_key || '',
+      StationCode: record.location_key || '',
+      SampleDate: record.sample_date || '',
+      TargetLatitude: record.latitude?.toString() || '',
+      TargetLongitude: record.longitude?.toString() || '',
+      Result: record.result?.toString() || '',
+      CollectionTime: '',
+      LocationCode: record.location_key || '',
+      Program: '',
+      ParentProject: '',
+      Project: '',
+      Analyte: '',
+      Unit: record.unit || '',
+      '30DayGeoMean': '',
+      '30DayCount': '',
+      '6WeekGeoMean': '',
+      '6WeekCount': '',
+      ResultQualCode: '',
+    }));
+
     return NextResponse.json(
       {
         meta: {
-          years_requested: years,
-          resource_ids: { "2020_present": RESOURCE_2020_PRESENT, "2010_2020": RESOURCE_2010_2020 },
-          total_records: combined.length,
-          valid_records: validRecords.length,
+          resource_id: RESOURCE_2020_PRESENT,
+          location_key_field: locationKeyField,
+          name_field: nameField,
+          lat_field: latField,
+          lon_field: lonField,
+          date_field: dateField,
+          result_field: resultField,
+          returned: records.length,
         },
-        data: validRecords,
+        data: mappedRecords,
       },
       {
         headers: {
-          "Cache-Control": "s-maxage=900, stale-while-revalidate=86400", // 15 min edge cache
+          // good for demos, tweak later
+          "Cache-Control": "s-maxage=900, stale-while-revalidate=86400",
         },
       }
     );
@@ -243,11 +184,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(
       { 
         error: isTimeout 
-          ? 'Request timed out. The dataset is large and may exceed Vercel function limits. Try reducing the limit parameter.'
+          ? 'Request timed out. The dataset is large and may exceed Vercel function limits.'
           : 'Failed to fetch water quality data',
         details: errorMessage,
         suggestion: isTimeout 
-          ? 'Try calling with ?limit=10000 for faster response'
+          ? 'Try calling with ?max=1000 for faster response'
           : 'Check Vercel function logs for more details'
       },
       { status: isTimeout ? 504 : 500 }

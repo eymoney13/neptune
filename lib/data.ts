@@ -22,11 +22,11 @@ export async function loadCSVData(): Promise<WaterQualityRecord[]> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 55000); // 55 seconds to be safe
     
-    // Use smaller limit to avoid Vercel timeout and improve performance
-    // Start with 5k records for faster initial load
-    const limit = 5000;
+    // Use max parameter to get unique stations (new optimized API)
+    // Default to 5000 unique stations - should show all locations
+    const max = 5000;
     
-    const response = await fetch(`${baseUrl}/api/water-quality?years=10&limit=${limit}`, {
+    const response = await fetch(`${baseUrl}/api/water-quality?max=${max}`, {
       headers: {
         'Accept': 'application/json',
       },
