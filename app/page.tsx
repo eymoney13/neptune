@@ -58,22 +58,30 @@ export default function Home() {
         // Provide more helpful error message
         if (errorMessage.includes('Failed to parse CSV') || errorMessage.includes('Not Found') || errorMessage.includes('404')) {
           const isProduction = typeof window !== 'undefined' && window.location.hostname !== 'localhost';
-          if (isProduction && !process.env.NEXT_PUBLIC_CSV_URL) {
-            setError(`CSV file not found. Please configure the NEXT_PUBLIC_CSV_URL environment variable in Vercel:
-            
-1. Go to your Vercel project settings
-2. Navigate to Environment Variables
-3. Add: NEXT_PUBLIC_CSV_URL = [your Cloudflare R2 URL]
-4. Redeploy your application
+          
+          if (isProduction) {
+            setError(`CSV file not found. The NEXT_PUBLIC_CSV_URL environment variable needs to be configured in Vercel.
 
-See QUICK_R2_SETUP.md for detailed instructions.`);
+To fix this:
+1. Go to https://vercel.com/dashboard
+2. Select your project → Settings → Environment Variables
+3. Click "Add New"
+4. Name: NEXT_PUBLIC_CSV_URL
+5. Value: [Your Cloudflare R2 URL - e.g., https://pub-xxxxx.r2.dev/safetoswim_geomeans_2020-present.csv]
+6. Select all environments (Production, Preview, Development)
+7. Click "Save"
+8. Go to Deployments → Click ⋯ on latest → "Redeploy"
+
+If you haven't set up Cloudflare R2 yet, see QUICK_R2_SETUP.md for instructions.
+
+Original error: ${errorMessage}`);
           } else {
-            setError(`CSV file not found. ${errorMessage.includes('Not Found') ? 'The file may not be available or the URL is incorrect.' : 'Parsing may take several minutes for large files.'}
-            
-If this is a production deployment:
-- Make sure NEXT_PUBLIC_CSV_URL is set in Vercel environment variables
-- Verify the CSV file is accessible at the configured URL
-- Check that Cloudflare R2 (or your CDN) is properly configured
+            setError(`CSV file not found. Make sure the file is in the public directory at /safetoswim_geomeans_2020-present.csv
+
+If you're deploying to production, you need to:
+- Set up Cloudflare R2 and upload the CSV file
+- Add NEXT_PUBLIC_CSV_URL environment variable in Vercel
+- See QUICK_R2_SETUP.md for detailed instructions
 
 Original error: ${errorMessage}`);
           }
