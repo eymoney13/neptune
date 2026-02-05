@@ -3,6 +3,9 @@ import { EnvironmentalData } from '@/lib/types';
 
 const PYTHON_API_URL = process.env.PYTHON_API_URL || 'http://localhost:8000';
 
+// Mark route as dynamic since it uses searchParams
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;
