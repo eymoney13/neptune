@@ -19,7 +19,10 @@ export async function loadCSVData(): Promise<WaterQualityRecord[]> {
     }, 300000);
 
     try {
-      Papa.parse('/safetoswim_geomeans_2020-present.csv', {
+      // Use environment variable for CSV URL, fallback to local file for development
+      const csvUrl = process.env.NEXT_PUBLIC_CSV_URL || '/safetoswim_geomeans_2020-present.csv';
+      
+      Papa.parse(csvUrl, {
         download: true,
         header: true,
         skipEmptyLines: true,

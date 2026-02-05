@@ -33,3 +33,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# large data files (stored in cloud storage)
+public/safetoswim_geomeans_2020-present.csv
