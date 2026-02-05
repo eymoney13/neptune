@@ -125,9 +125,30 @@ async function fetchRecordsFallback(
   
   // Deduplicate by location key, keeping latest by date
   const seen = new Map<string, any>();
+  let skippedCount = 0;
+  
   for (const record of validRecords) {
-    const key = String(record[locationKeyField] || record[nameField || ''] || '');
-    if (!key || key === 'undefined' || key === 'null') continue;
+    // Try multiple field name variations (case-insensitive)
+    let key = record[locationKeyField] || 
+              record[nameField || ''] || 
+              record['StationCode'] || 
+              record['station_code'] ||
+              record['Station_Name'] ||
+              record['station_name'] ||
+              '';
+    
+    key = String(key).trim();
+    
+    // If still no key, try using lat/lon as composite key
+    if (!key || key === 'undefined' || key === 'null' || key === '') {
+      const lat = String(record[latField] || '').substring(0, 8);
+      const lon = String(record[lonField] || '').substring(0, 8);
+      key = `${lat},${lon}`;
+      if (key === ',' || key === 'undefined,undefined') {
+        skippedCount++;
+        continue;
+      }
+    }
     
     const existing = seen.get(key);
     const recordDate = record[dateField];
@@ -142,7 +163,21 @@ async function fetchRecordsFallback(
   }
   
   const uniqueRecords = Array.from(seen.values()).slice(0, max);
-  console.log(`Deduplicated to ${uniqueRecords.length} unique stations`);
+  console.log(`Deduplicated to ${uniqueRecords.length} unique stations (skipped ${skippedCount} records without valid key)`);
+  
+  // Debug: Show sample record if we have issues
+  if (uniqueRecords.length === 0 && validRecords.length > 0) {
+    const sample = validRecords[0];
+    console.log(`Sample record keys:`, {
+      locationKeyField,
+      nameField,
+      hasLocationKey: !!sample[locationKeyField],
+      hasNameField: nameField ? !!sample[nameField] : 'N/A',
+      hasStationCode: !!sample['StationCode'],
+      hasStationCodeLower: !!sample['station_code'],
+      allKeys: Object.keys(sample).slice(0, 15)
+    });
+  }
   
   return uniqueRecords;
 }
