@@ -123,17 +123,14 @@ async function fetchRecordsFallback(
     });
   }
   
-  // Deduplicate by location key, keeping latest by date
+  // Deduplicate by StationName, keeping latest by date
   const seen = new Map<string, any>();
   let skippedCount = 0;
   
   for (const record of validRecords) {
-    // Try multiple field name variations (case-insensitive)
+    // Use StationName as the location key
     let key = record[locationKeyField] || 
-              record[nameField || ''] || 
-              record['StationCode'] || 
-              record['station_code'] ||
-              record['Station_Name'] ||
+              record['StationName'] || 
               record['station_name'] ||
               '';
     
@@ -217,18 +214,17 @@ export async function GET(req: NextRequest) {
       throw new Error(`Could not identify latitude/longitude fields. Available fields: ${fields.slice(0, 10).join(', ')}...`);
     }
 
-    // 3) Identify a stable "location key" (station/site id if present, else station name)
-    const idField =
-      pickFirst(fields, ["station_code", "station_id", "site_id", "location_id", "monitoring_location_id", "beach_id", "id", "site_code"]) ?? null;
-
+    // 3) Identify location key - use StationName as primary key
     const nameField =
-      pickFirst(fields, ["station_name", "site_name", "location_name", "beach_name", "monitoring_location_name", "name"]) ??
+      pickFirst(fields, ["StationName", "station_name", "site_name", "location_name", "beach_name", "monitoring_location_name", "name"]) ??
       null;
 
-    const locationKeyField = idField || nameField || 'station_code';
-    if (!locationKeyField) {
-      throw new Error('Could not identify location key field');
+    if (!nameField) {
+      throw new Error('Could not identify StationName field');
     }
+
+    // Use StationName as the location key for deduplication
+    const locationKeyField = nameField;
 
     // 4) Identify date/time field so we can pick latest record
     const dateField = pickFirst(fields, ["sample_date", "sample_datetime", "collection_date", "collection_datetime", "date", "timestamp"]) || 'sample_date';
@@ -236,7 +232,7 @@ export async function GET(req: NextRequest) {
     // Identify result field for water quality data
     const resultField = pickFirst(fields, ["result", "fecal_coliform", "value", "measurement", "cfu"]);
 
-    console.log(`Identified fields: lat=${latField}, lon=${lonField}, key=${locationKeyField}, date=${dateField}`);
+    console.log(`Identified fields: lat=${latField}, lon=${lonField}, key=${locationKeyField} (StationName), date=${dateField}`);
 
     // Use simpler fallback method directly (more reliable than SQL)
     const records = await fetchRecordsFallback(
@@ -256,14 +252,16 @@ export async function GET(req: NextRequest) {
       // Handle both SQL result format and direct record format
       const lat = record.latitude ?? record[latField];
       const lon = record.longitude ?? record[lonField];
-      const name = record.location_name ?? record[nameField || ''] ?? record[locationKeyField] ?? '';
-      const code = record.location_key ?? record[locationKeyField] ?? record[idField || ''] ?? '';
+      // Use StationName as the primary identifier
+      const name = record[locationKeyField] ?? record['StationName'] ?? record['station_name'] ?? '';
+      // Use StationName as StationCode too (since we're deduplicating by name)
+      const code = name; // Use StationName as the code
       const date = record.sample_date ?? record[dateField] ?? '';
       const result = record.result ?? (resultField ? record[resultField] : null);
       
       return {
         StationName: name,
-        StationCode: code,
+        StationCode: code, // Same as StationName
         SampleDate: date,
         TargetLatitude: lat?.toString() || '',
         TargetLongitude: lon?.toString() || '',
@@ -284,6 +282,7 @@ export async function GET(req: NextRequest) {
     }).filter(record => 
       record.TargetLatitude && 
       record.TargetLongitude && 
+      record.StationName && // Ensure StationName exists
       record.TargetLatitude !== 'NR' &&
       record.TargetLongitude !== 'NR' &&
       !isNaN(parseFloat(record.TargetLatitude)) &&
@@ -296,13 +295,13 @@ export async function GET(req: NextRequest) {
       {
         meta: {
           resource_id: RESOURCE_2020_PRESENT,
-          location_key_field: locationKeyField,
+          location_key_field: locationKeyField, // StationName
           name_field: nameField,
           lat_field: latField,
           lon_field: lonField,
           date_field: dateField,
           result_field: resultField,
-          returned: records.length,
+          returned: mappedRecords.length,
         },
         data: mappedRecords,
       },
