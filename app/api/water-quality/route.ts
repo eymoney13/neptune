@@ -129,7 +129,9 @@ async function fetchRecordsFallback(
   
   for (const record of validRecords) {
     // Use StationName as the location key
-    let key = record[nameField] || record['StationName'] || '';
+    // nameField is guaranteed to be non-null at this point
+    const fieldName = nameField!; // Non-null assertion since we checked earlier
+    let key = record[fieldName] || record['StationName'] || '';
     key = String(key).trim();
     
     // Skip if no StationName
