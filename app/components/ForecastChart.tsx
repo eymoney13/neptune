@@ -147,7 +147,7 @@ export default function ForecastChart({ historicalRecords, prediction, stationNa
               if (point && point.type === 'historical') {
                 return <circle cx={props.cx} cy={props.cy} r={4} fill="#0ea5e9" />;
               }
-              return null;
+              return <circle cx={props.cx} cy={props.cy} r={0} fill="transparent" />;
             }}
             name="Historical"
             connectNulls={false}
@@ -166,7 +166,7 @@ export default function ForecastChart({ historicalRecords, prediction, stationNa
                 if (point && point.type === 'prediction') {
                   return <circle cx={props.cx} cy={props.cy} r={8} fill={predictionColor} stroke="white" strokeWidth={2} />;
                 }
-                return null;
+                return <circle cx={props.cx} cy={props.cy} r={0} fill="transparent" />;
               }}
               name="Prediction"
               connectNulls={false}
