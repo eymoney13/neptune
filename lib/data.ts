@@ -1,4 +1,3 @@
-import Papa from 'papaparse';
 import { WaterQualityRecord, Station, StationSummary } from './types';
 
 let cachedData: WaterQualityRecord[] | null = null;
@@ -9,74 +8,105 @@ export async function loadCSVData(): Promise<WaterQualityRecord[]> {
     return cachedData;
   }
 
-  return new Promise((resolve, reject) => {
-    const validRecords: WaterQualityRecord[] = [];
-    let rowCount = 0;
+  try {
+    // Use API endpoint instead of CSV file
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
+    const useApi = apiUrl || typeof window === 'undefined'; // Use API in server-side or if API_URL is set
     
-    // Set a timeout for large file processing (5 minutes)
-    const timeout = setTimeout(() => {
-      reject(new Error('CSV parsing took too long. The file may be too large. Try processing on the server side.'));
-    }, 300000);
-
-    try {
-      // Use environment variable for CSV URL, fallback to local file for development
-      const csvUrl = process.env.NEXT_PUBLIC_CSV_URL || '/safetoswim_geomeans_2020-present.csv';
+    if (useApi) {
+      // Fetch from our API route
+      const baseUrl = typeof window !== 'undefined' 
+        ? window.location.origin 
+        : process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
       
-      // Check if we're in production and environment variable is not set
-      if (typeof window !== 'undefined' && !process.env.NEXT_PUBLIC_CSV_URL && csvUrl.startsWith('/')) {
-        console.warn('NEXT_PUBLIC_CSV_URL environment variable is not set. The CSV file may not be available in production.');
-      }
-      
-      Papa.parse(csvUrl, {
-        download: true,
-        header: true,
-        skipEmptyLines: true,
-        worker: false, // Disable worker for better compatibility
-        fastMode: true,
-        preview: 0, // Process all rows
-        step: (result) => {
-          rowCount++;
-          
-          // Log progress every 10000 rows
-          if (rowCount % 10000 === 0) {
-            console.log(`Processing row ${rowCount}...`);
-          }
-
-          const record = result.data as WaterQualityRecord;
-          
-          // Filter as we go to save memory
-          if (
-            record &&
-            record.TargetLatitude && 
-            record.TargetLongitude && 
-            record.Result &&
-            record.TargetLatitude !== 'NR' &&
-            record.TargetLongitude !== 'NR' &&
-            !isNaN(parseFloat(record.TargetLatitude)) &&
-            !isNaN(parseFloat(record.TargetLongitude)) &&
-            parseFloat(record.TargetLatitude) !== 0 &&
-            parseFloat(record.TargetLongitude) !== 0
-          ) {
-            validRecords.push(record);
-          }
-        },
-        complete: (results) => {
-          clearTimeout(timeout);
-          console.log(`Parsing complete. Processed ${rowCount} rows, found ${validRecords.length} valid records.`);
-          cachedData = validRecords;
-          resolve(cachedData);
-        },
-        error: (error) => {
-          clearTimeout(timeout);
-          console.error('PapaParse error:', error);
-          reject(new Error(`Failed to parse CSV: ${error.message || 'Unknown error'}`));
+      const response = await fetch(`${baseUrl}/api/water-quality?years=10&limit=100000`, {
+        headers: {
+          'Accept': 'application/json',
         },
       });
-    } catch (error) {
-      clearTimeout(timeout);
-      reject(error);
+
+      if (!response.ok) {
+        throw new Error(`API request failed: ${response.status} ${response.statusText}`);
+      }
+
+      const json = await response.json();
+      
+      if (json.error) {
+        throw new Error(json.error);
+      }
+
+      const records = (json.data || []) as WaterQualityRecord[];
+      console.log(`Loaded ${records.length} records from API`);
+      cachedData = records;
+      return records;
+    } else {
+      // Fallback to CSV for local development if API is not available
+      // This requires PapaParse - keeping as fallback
+      const Papa = (await import('papaparse')).default;
+      
+      return new Promise((resolve, reject) => {
+        const validRecords: WaterQualityRecord[] = [];
+        let rowCount = 0;
+        
+        const timeout = setTimeout(() => {
+          reject(new Error('CSV parsing took too long. The file may be too large. Try processing on the server side.'));
+        }, 300000);
+
+        try {
+          const csvUrl = process.env.NEXT_PUBLIC_CSV_URL || '/safetoswim_geomeans_2020-present.csv';
+          
+          Papa.parse(csvUrl, {
+            download: true,
+            header: true,
+            skipEmptyLines: true,
+            worker: false,
+            fastMode: true,
+            preview: 0,
+            step: (result) => {
+              rowCount++;
+              if (rowCount % 10000 === 0) {
+                console.log(`Processing row ${rowCount}...`);
+              }
+
+              const record = result.data as WaterQualityRecord;
+              
+              if (
+                record &&
+                record.TargetLatitude && 
+                record.TargetLongitude && 
+                record.Result &&
+                record.TargetLatitude !== 'NR' &&
+                record.TargetLongitude !== 'NR' &&
+                !isNaN(parseFloat(record.TargetLatitude)) &&
+                !isNaN(parseFloat(record.TargetLongitude)) &&
+                parseFloat(record.TargetLatitude) !== 0 &&
+                parseFloat(record.TargetLongitude) !== 0
+              ) {
+                validRecords.push(record);
+              }
+            },
+            complete: () => {
+              clearTimeout(timeout);
+              console.log(`Parsing complete. Processed ${rowCount} rows, found ${validRecords.length} valid records.`);
+              cachedData = validRecords;
+              resolve(cachedData);
+            },
+            error: (error) => {
+              clearTimeout(timeout);
+              console.error('PapaParse error:', error);
+              reject(new Error(`Failed to parse CSV: ${error.message || 'Unknown error'}`));
+            },
+          });
+        } catch (error) {
+          clearTimeout(timeout);
+          reject(error);
+        }
+      });
     }
-  });
+  } catch (error) {
+    console.error('Error loading water quality data:', error);
+    throw error;
+  }
 }
 
 export function parseNumeric(value: string | undefined): number {

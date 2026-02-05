@@ -34,12 +34,12 @@ export default function Home() {
     async function loadData() {
       try {
         setLoading(true);
-        setLoadingProgress('Loading CSV file (this may take a few minutes for large files)...');
+        setLoadingProgress('Loading water quality data from API...');
         
         // Add a small delay to ensure UI updates
         await new Promise(resolve => setTimeout(resolve, 100));
         
-        setLoadingProgress('Parsing CSV data...');
+        setLoadingProgress('Processing water quality data...');
         const summaries = await getCachedStationSummaries();
         
         setLoadingProgress('Processing station summaries...');
@@ -56,40 +56,44 @@ export default function Home() {
         console.error('Error loading data:', err);
         
         // Provide more helpful error message
-        if (errorMessage.includes('Failed to parse CSV') || errorMessage.includes('Not Found') || errorMessage.includes('404')) {
+        if (errorMessage.includes('Failed to') || errorMessage.includes('Not Found') || errorMessage.includes('404') || errorMessage.includes('API request failed')) {
           const isProduction = typeof window !== 'undefined' && window.location.hostname !== 'localhost';
           
           if (isProduction) {
-            setError(`CSV file not found. The NEXT_PUBLIC_CSV_URL environment variable needs to be configured in Vercel.
+            setError(`Failed to load water quality data from API.
 
-To fix this:
-1. Go to https://vercel.com/dashboard
-2. Select your project → Settings → Environment Variables
-3. Click "Add New"
-4. Name: NEXT_PUBLIC_CSV_URL
-5. Value: [Your Cloudflare R2 URL - e.g., https://pub-xxxxx.r2.dev/safetoswim_geomeans_2020-present.csv]
-6. Select all environments (Production, Preview, Development)
-7. Click "Save"
-8. Go to Deployments → Click ⋯ on latest → "Redeploy"
+The app is now using the California Data Portal (CKAN) API instead of CSV files.
 
-If you haven't set up Cloudflare R2 yet, see QUICK_R2_SETUP.md for instructions.
+If you see this error:
+1. Check that the API route is working: /api/water-quality
+2. Verify the CKAN API is accessible
+3. Check Vercel deployment logs for API errors
+4. The API may be rate-limited - try again in a few minutes
 
 Original error: ${errorMessage}`);
           } else {
-            setError(`CSV file not found. Make sure the file is in the public directory at /safetoswim_geomeans_2020-present.csv
+            setError(`Failed to load water quality data.
 
-If you're deploying to production, you need to:
-- Set up Cloudflare R2 and upload the CSV file
-- Add NEXT_PUBLIC_CSV_URL environment variable in Vercel
-- See QUICK_R2_SETUP.md for detailed instructions
+The app is now using the California Data Portal (CKAN) API. 
+
+If you see this error:
+1. Make sure the dev server is running
+2. Check that /api/water-quality endpoint is accessible
+3. Verify your internet connection (API fetches from data.ca.gov)
+4. Check browser console for detailed error messages
+
+If the API is unavailable, the app will fall back to CSV file (if available).
 
 Original error: ${errorMessage}`);
           }
-        } else if (errorMessage.includes('too long')) {
-          setError(`CSV file is very large (341MB). Parsing may take several minutes. If it continues to fail, consider:
-          - Using a smaller sample of the data
-          - Processing the CSV server-side before deployment
-          - Using a CDN or external data source
+        } else if (errorMessage.includes('too long') || errorMessage.includes('timeout')) {
+          setError(`Data loading is taking longer than expected. This may be due to:
+          - Large dataset size
+          - Slow API response
+          - Network connectivity issues
+          
+          Please wait a bit longer or try refreshing the page.
+          
           Original error: ${errorMessage}`);
         }
       } finally {
@@ -173,7 +177,7 @@ Original error: ${errorMessage}`);
           <p className="text-gray-600 font-medium mb-2">Loading water quality data...</p>
           <p className="text-sm text-gray-500">{loadingProgress}</p>
           <p className="text-xs text-gray-400 mt-4">
-            Note: The CSV file is ~341MB. This may take 2-5 minutes to parse. Please be patient.
+            Loading data from California Data Portal API. This may take a minute...
           </p>
         </div>
       </div>
@@ -187,7 +191,7 @@ Original error: ${errorMessage}`);
           <h1 className="text-2xl font-semibold text-gray-900 mb-2">Error Loading Data</h1>
           <p className="text-gray-600 mb-4">{error}</p>
           <p className="text-sm text-gray-500">
-            Make sure the CSV file is in the public directory at /safetoswim_geomeans_2020-present.csv
+            The app fetches data from the California Data Portal API. Check the browser console for details.
           </p>
         </div>
       </div>
