@@ -40,6 +40,56 @@ function requireField(found: string | null, label: string) {
   return found;
 }
 
+// Fallback: Use regular datastore_search if SQL fails
+async function fetchRecordsFallback(
+  resourceId: string,
+  latField: string,
+  lonField: string,
+  locationKeyField: string,
+  nameField: string | null,
+  dateField: string,
+  resultField: string | null,
+  max: number
+): Promise<any[]> {
+  console.log(`Using fallback method: fetching ${max} records...`);
+  const limit = Math.min(max * 2, 10000); // Fetch more to account for duplicates
+  const json = await ckan("datastore_search", {
+    resource_id: resourceId,
+    limit: limit.toString(),
+  });
+  
+  const allRecords = json?.result?.records ?? [];
+  
+  // Filter valid records
+  const validRecords = allRecords.filter((record: any) => {
+    const lat = record[latField];
+    const lon = record[lonField];
+    return lat && lon && lat !== 'NR' && lon !== 'NR' && 
+           !isNaN(parseFloat(lat)) && !isNaN(parseFloat(lon)) &&
+           parseFloat(lat) !== 0 && parseFloat(lon) !== 0;
+  });
+  
+  // Deduplicate by location key, keeping latest by date
+  const seen = new Map<string, any>();
+  for (const record of validRecords) {
+    const key = record[locationKeyField] || record[nameField || ''] || '';
+    if (!key) continue;
+    
+    const existing = seen.get(key);
+    const recordDate = record[dateField];
+    if (!existing || !recordDate) {
+      seen.set(key, record);
+    } else {
+      const existingDate = existing[dateField];
+      if (recordDate > existingDate) {
+        seen.set(key, record);
+      }
+    }
+  }
+  
+  return Array.from(seen.values()).slice(0, max);
+}
+
 export async function GET(req: NextRequest) {
   try {
     const url = new URL(req.url);
@@ -51,6 +101,7 @@ export async function GET(req: NextRequest) {
 
     // 1) Discover schema so we do not guess column names
     const fields = await getFields(RESOURCE_2020_PRESENT);
+    console.log(`Found ${fields.length} fields in dataset`);
 
     // 2) Identify lat/lon fields (common names)
     const latField = requireField(
@@ -81,79 +132,94 @@ export async function GET(req: NextRequest) {
     // Identify result field for water quality data
     const resultField = pickFirst(fields, ["result", "fecal_coliform", "value", "measurement", "cfu"]);
 
-    // Optional context fields if they exist
-    const countyField = pickFirst(fields, ["county", "county_name"]);
-    const labField = pickFirst(fields, ["lab", "lab_name"]);
-    const unitField = pickFirst(fields, ["units", "unit"]);
+    console.log(`Identified fields: lat=${latField}, lon=${lonField}, key=${locationKeyField}, date=${dateField}`);
 
-    // 5) Query: latest sample per locationKeyField
-    // CKAN DataStore is typically backed by Postgres, so DISTINCT ON works well.
-    // We cast lat/lon to numeric defensively, and drop nulls.
-    const selectParts = [
-      `"${locationKeyField}" as location_key`,
-      nameField ? `"${nameField}" as location_name` : `"${locationKeyField}" as location_name`,
-      `"${latField}" as latitude`,
-      `"${lonField}" as longitude`,
-      `"${dateField}" as sample_date`,
-    ];
+    let records: any[] = [];
+    
+    // Try SQL query first, fallback to regular search if it fails
+    try {
+      const selectParts = [
+        `"${locationKeyField}" as location_key`,
+        nameField ? `"${nameField}" as location_name` : `"${locationKeyField}" as location_name`,
+        `"${latField}" as latitude`,
+        `"${lonField}" as longitude`,
+        `"${dateField}" as sample_date`,
+      ];
 
-    if (resultField) selectParts.push(`"${resultField}" as result`);
-    if (countyField) selectParts.push(`"${countyField}" as county`);
-    if (labField) selectParts.push(`"${labField}" as lab`);
-    if (unitField) selectParts.push(`"${unitField}" as unit`);
+      if (resultField) selectParts.push(`"${resultField}" as result`);
 
-    const sql = `
-      SELECT DISTINCT ON (location_key)
-        ${selectParts.join(",\n        ")}
-      FROM (
-        SELECT
-          "${locationKeyField}" as location_key,
-          ${nameField ? `"${nameField}" as location_name,` : ""}
-          "${latField}" as latitude,
-          "${lonField}" as longitude,
-          "${dateField}" as sample_date
-          ${resultField ? `, "${resultField}" as result` : ""}
-          ${countyField ? `, "${countyField}" as county` : ""}
-          ${labField ? `, "${labField}" as lab` : ""}
-          ${unitField ? `, "${unitField}" as unit` : ""}
+      const sql = `
+        SELECT DISTINCT ON ("${locationKeyField}")
+          ${selectParts.join(",\n          ")}
         FROM "${RESOURCE_2020_PRESENT}"
         WHERE "${latField}" IS NOT NULL
           AND "${lonField}" IS NOT NULL
           AND CAST("${latField}" AS TEXT) <> ''
           AND CAST("${lonField}" AS TEXT) <> ''
           AND "${dateField}" IS NOT NULL
-      ) t
-      ORDER BY location_key, sample_date DESC
-      LIMIT ${max}
-    `.trim();
+        ORDER BY "${locationKeyField}", "${dateField}" DESC
+        LIMIT ${max}
+      `.trim();
 
-    console.log(`Executing SQL query for unique stations...`);
-    const json = await ckan("datastore_search_sql", { sql });
-    const records = json?.result?.records ?? [];
-
-    console.log(`Found ${records.length} unique stations`);
+      console.log(`Attempting SQL query for unique stations...`);
+      const json = await ckan("datastore_search_sql", { sql });
+      records = json?.result?.records ?? [];
+      console.log(`SQL query succeeded: Found ${records.length} unique stations`);
+    } catch (sqlError) {
+      console.warn(`SQL query failed, using fallback method:`, sqlError);
+      records = await fetchRecordsFallback(
+        RESOURCE_2020_PRESENT,
+        latField,
+        lonField,
+        locationKeyField,
+        nameField,
+        dateField,
+        resultField,
+        max
+      );
+      console.log(`Fallback method found ${records.length} unique stations`);
+    }
 
     // Map to our expected format
-    const mappedRecords = records.map((record: any) => ({
-      StationName: record.location_name || record.location_key || '',
-      StationCode: record.location_key || '',
-      SampleDate: record.sample_date || '',
-      TargetLatitude: record.latitude?.toString() || '',
-      TargetLongitude: record.longitude?.toString() || '',
-      Result: record.result?.toString() || '',
-      CollectionTime: '',
-      LocationCode: record.location_key || '',
-      Program: '',
-      ParentProject: '',
-      Project: '',
-      Analyte: '',
-      Unit: record.unit || '',
-      '30DayGeoMean': '',
-      '30DayCount': '',
-      '6WeekGeoMean': '',
-      '6WeekCount': '',
-      ResultQualCode: '',
-    }));
+    const mappedRecords = records.map((record: any) => {
+      // Handle both SQL result format and direct record format
+      const lat = record.latitude ?? record[latField];
+      const lon = record.longitude ?? record[lonField];
+      const name = record.location_name ?? record[nameField || ''] ?? record[locationKeyField] ?? '';
+      const code = record.location_key ?? record[locationKeyField] ?? record[idField || ''] ?? '';
+      const date = record.sample_date ?? record[dateField] ?? '';
+      const result = record.result ?? (resultField ? record[resultField] : null);
+      
+      return {
+        StationName: name,
+        StationCode: code,
+        SampleDate: date,
+        TargetLatitude: lat?.toString() || '',
+        TargetLongitude: lon?.toString() || '',
+        Result: result?.toString() || '',
+        CollectionTime: '',
+        LocationCode: code,
+        Program: '',
+        ParentProject: '',
+        Project: '',
+        Analyte: '',
+        Unit: '',
+        '30DayGeoMean': '',
+        '30DayCount': '',
+        '6WeekGeoMean': '',
+        '6WeekCount': '',
+        ResultQualCode: '',
+      };
+    }).filter(record => 
+      record.TargetLatitude && 
+      record.TargetLongitude && 
+      record.TargetLatitude !== 'NR' &&
+      record.TargetLongitude !== 'NR' &&
+      !isNaN(parseFloat(record.TargetLatitude)) &&
+      !isNaN(parseFloat(record.TargetLongitude)) &&
+      parseFloat(record.TargetLatitude) !== 0 &&
+      parseFloat(record.TargetLongitude) !== 0
+    );
 
     return NextResponse.json(
       {
@@ -179,7 +245,15 @@ export async function GET(req: NextRequest) {
   } catch (error) {
     console.error('Water quality API error:', error);
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorStack = error instanceof Error ? error.stack : undefined;
     const isTimeout = errorMessage.includes('aborted') || errorMessage.includes('timeout');
+    
+    // Log full error details for debugging
+    console.error('Full error details:', {
+      message: errorMessage,
+      stack: errorStack,
+      isTimeout,
+    });
     
     return NextResponse.json(
       { 
@@ -189,7 +263,7 @@ export async function GET(req: NextRequest) {
         details: errorMessage,
         suggestion: isTimeout 
           ? 'Try calling with ?max=1000 for faster response'
-          : 'Check Vercel function logs for more details'
+          : 'Check Vercel function logs for more details. The CKAN API may be temporarily unavailable.'
       },
       { status: isTimeout ? 504 : 500 }
     );
