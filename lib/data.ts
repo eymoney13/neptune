@@ -9,100 +9,53 @@ export async function loadCSVData(): Promise<WaterQualityRecord[]> {
   }
 
   try {
-    // Use API endpoint instead of CSV file
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
-    const useApi = apiUrl || typeof window === 'undefined'; // Use API in server-side or if API_URL is set
+    // Always use API endpoint (works in both client and server)
+    const baseUrl = typeof window !== 'undefined' 
+      ? window.location.origin 
+      : process.env.NEXT_PUBLIC_API_URL || process.env.VERCEL_URL 
+        ? `https://${process.env.VERCEL_URL}` 
+        : 'http://localhost:3000';
     
-    if (useApi) {
-      // Fetch from our API route
-      const baseUrl = typeof window !== 'undefined' 
-        ? window.location.origin 
-        : process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
-      
-      const response = await fetch(`${baseUrl}/api/water-quality?years=10&limit=100000`, {
-        headers: {
-          'Accept': 'application/json',
-        },
-      });
+    console.log(`Fetching water quality data from: ${baseUrl}/api/water-quality`);
+    
+    // Create abort controller for timeout (Vercel has 60s limit for Pro, 10s for Hobby)
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 55000); // 55 seconds to be safe
+    
+    // Use smaller limit to avoid Vercel timeout (start with 20k, can increase if needed)
+    const limit = 20000;
+    
+    const response = await fetch(`${baseUrl}/api/water-quality?years=10&limit=${limit}`, {
+      headers: {
+        'Accept': 'application/json',
+      },
+      signal: controller.signal,
+    });
+    
+    clearTimeout(timeoutId);
 
-      if (!response.ok) {
-        throw new Error(`API request failed: ${response.status} ${response.statusText}`);
+    if (!response.ok) {
+      const errorText = await response.text();
+      let errorMessage = `API request failed: ${response.status} ${response.statusText}`;
+      try {
+        const errorJson = JSON.parse(errorText);
+        errorMessage = errorJson.error || errorJson.details || errorMessage;
+      } catch {
+        errorMessage = errorText || errorMessage;
       }
-
-      const json = await response.json();
-      
-      if (json.error) {
-        throw new Error(json.error);
-      }
-
-      const records = (json.data || []) as WaterQualityRecord[];
-      console.log(`Loaded ${records.length} records from API`);
-      cachedData = records;
-      return records;
-    } else {
-      // Fallback to CSV for local development if API is not available
-      // This requires PapaParse - keeping as fallback
-      const Papa = (await import('papaparse')).default;
-      
-      return new Promise((resolve, reject) => {
-        const validRecords: WaterQualityRecord[] = [];
-        let rowCount = 0;
-        
-        const timeout = setTimeout(() => {
-          reject(new Error('CSV parsing took too long. The file may be too large. Try processing on the server side.'));
-        }, 300000);
-
-        try {
-          const csvUrl = process.env.NEXT_PUBLIC_CSV_URL || '/safetoswim_geomeans_2020-present.csv';
-          
-          Papa.parse(csvUrl, {
-            download: true,
-            header: true,
-            skipEmptyLines: true,
-            worker: false,
-            fastMode: true,
-            preview: 0,
-            step: (result) => {
-              rowCount++;
-              if (rowCount % 10000 === 0) {
-                console.log(`Processing row ${rowCount}...`);
-              }
-
-              const record = result.data as WaterQualityRecord;
-              
-              if (
-                record &&
-                record.TargetLatitude && 
-                record.TargetLongitude && 
-                record.Result &&
-                record.TargetLatitude !== 'NR' &&
-                record.TargetLongitude !== 'NR' &&
-                !isNaN(parseFloat(record.TargetLatitude)) &&
-                !isNaN(parseFloat(record.TargetLongitude)) &&
-                parseFloat(record.TargetLatitude) !== 0 &&
-                parseFloat(record.TargetLongitude) !== 0
-              ) {
-                validRecords.push(record);
-              }
-            },
-            complete: () => {
-              clearTimeout(timeout);
-              console.log(`Parsing complete. Processed ${rowCount} rows, found ${validRecords.length} valid records.`);
-              cachedData = validRecords;
-              resolve(cachedData);
-            },
-            error: (error) => {
-              clearTimeout(timeout);
-              console.error('PapaParse error:', error);
-              reject(new Error(`Failed to parse CSV: ${error.message || 'Unknown error'}`));
-            },
-          });
-        } catch (error) {
-          clearTimeout(timeout);
-          reject(error);
-        }
-      });
+      throw new Error(errorMessage);
     }
+
+    const json = await response.json();
+    
+    if (json.error) {
+      throw new Error(json.error);
+    }
+
+    const records = (json.data || []) as WaterQualityRecord[];
+    console.log(`Loaded ${records.length} records from API`);
+    cachedData = records;
+    return records;
   } catch (error) {
     console.error('Error loading water quality data:', error);
     throw error;

@@ -51,11 +51,15 @@ async function getFields(resourceId: string): Promise<string[]> {
 }
 
 // Fetch all records from a resource with pagination
-async function fetchAllRecords(resourceId: string, limit = 100000) {
+async function fetchAllRecords(resourceId: string, limit = 20000) {
   const chunk = 5000;
   const out: any[] = [];
+  const maxChunks = Math.ceil(limit / chunk);
 
-  for (let offset = 0; offset < limit; offset += chunk) {
+  for (let i = 0; i < maxChunks; i++) {
+    const offset = i * chunk;
+    console.log(`Fetching chunk ${i + 1}/${maxChunks} (offset: ${offset})`);
+    
     const json = await callCkanAction("datastore_search", {
       resource_id: resourceId,
       limit: chunk.toString(),
@@ -66,6 +70,11 @@ async function fetchAllRecords(resourceId: string, limit = 100000) {
     out.push(...rows);
     
     if (rows.length < chunk) break;
+    
+    // Safety check - don't exceed limit
+    if (out.length >= limit) {
+      return out.slice(0, limit);
+    }
   }
 
   return out;
@@ -167,7 +176,11 @@ export async function GET(req: NextRequest) {
   try {
     const url = new URL(req.url);
     const years = Math.min(Math.max(Number(url.searchParams.get("years") ?? "10"), 1), 20);
-    const limit = Math.min(Number(url.searchParams.get("limit") ?? "100000"), 200000);
+    // Default to smaller limit to avoid Vercel timeout (60s for Pro, 10s for Hobby)
+    // Start with 20k records - can be increased if needed
+    const limit = Math.min(Number(url.searchParams.get("limit") ?? "20000"), 50000);
+    
+    console.log(`Water quality API: Fetching ${limit} records for ${years} years`);
 
     // Get field names for both resources
     const [fields2020, fields2010] = await Promise.all([
@@ -219,12 +232,20 @@ export async function GET(req: NextRequest) {
     );
   } catch (error) {
     console.error('Water quality API error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const isTimeout = errorMessage.includes('aborted') || errorMessage.includes('timeout');
+    
     return NextResponse.json(
       { 
-        error: 'Failed to fetch water quality data',
-        details: error instanceof Error ? error.message : 'Unknown error'
+        error: isTimeout 
+          ? 'Request timed out. The dataset is large and may exceed Vercel function limits. Try reducing the limit parameter.'
+          : 'Failed to fetch water quality data',
+        details: errorMessage,
+        suggestion: isTimeout 
+          ? 'Try calling with ?limit=10000 for faster response'
+          : 'Check Vercel function logs for more details'
       },
-      { status: 500 }
+      { status: isTimeout ? 504 : 500 }
     );
   }
 }
