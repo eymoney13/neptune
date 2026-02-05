@@ -43,8 +43,14 @@ export default function Insights({
       return;
     }
 
-    if (!prediction || !envData || !prediction.prediction) {
-      setInsights('Loading insights...');
+    // Generate insights even if prediction/envData is missing (use defaults)
+    if (!prediction || !prediction.prediction) {
+      setInsights('Waiting for prediction data...');
+      return;
+    }
+    
+    if (!envData) {
+      setInsights('Waiting for environmental data...');
       return;
     }
 

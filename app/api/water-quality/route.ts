@@ -51,29 +51,35 @@ async function getFields(resourceId: string): Promise<string[]> {
 }
 
 // Fetch all records from a resource with pagination
-async function fetchAllRecords(resourceId: string, limit = 20000) {
-  const chunk = 5000;
+async function fetchAllRecords(resourceId: string, limit = 10000) {
+  const chunk = 2000; // Smaller chunks for faster response
   const out: any[] = [];
   const maxChunks = Math.ceil(limit / chunk);
 
   for (let i = 0; i < maxChunks; i++) {
     const offset = i * chunk;
-    console.log(`Fetching chunk ${i + 1}/${maxChunks} (offset: ${offset})`);
     
-    const json = await callCkanAction("datastore_search", {
-      resource_id: resourceId,
-      limit: chunk.toString(),
-      offset: offset.toString(),
-    });
-    
-    const rows = json?.result?.records ?? [];
-    out.push(...rows);
-    
-    if (rows.length < chunk) break;
-    
-    // Safety check - don't exceed limit
-    if (out.length >= limit) {
-      return out.slice(0, limit);
+    try {
+      const json = await callCkanAction("datastore_search", {
+        resource_id: resourceId,
+        limit: chunk.toString(),
+        offset: offset.toString(),
+      });
+      
+      const rows = json?.result?.records ?? [];
+      out.push(...rows);
+      
+      if (rows.length < chunk) break;
+      
+      // Safety check - don't exceed limit
+      if (out.length >= limit) {
+        return out.slice(0, limit);
+      }
+    } catch (error) {
+      console.error(`Error fetching chunk ${i + 1}:`, error);
+      // Continue with what we have if there's an error
+      if (out.length > 0) break;
+      throw error;
     }
   }
 
@@ -175,28 +181,27 @@ function mapCkanRecordToWaterQuality(record: any, fields: string[]): any {
 export async function GET(req: NextRequest) {
   try {
     const url = new URL(req.url);
-    const years = Math.min(Math.max(Number(url.searchParams.get("years") ?? "10"), 1), 20);
-    // Default to smaller limit to avoid Vercel timeout (60s for Pro, 10s for Hobby)
-    // Start with 20k records - can be increased if needed
-    const limit = Math.min(Number(url.searchParams.get("limit") ?? "20000"), 50000);
+    const years = Math.min(Math.max(Number(url.searchParams.get("years") ?? "5"), 1), 20);
+    // Reduce limit significantly to avoid Vercel timeout and improve performance
+    // Start with 5k records - focus on recent data
+    const limit = Math.min(Number(url.searchParams.get("limit") ?? "5000"), 10000);
     
     console.log(`Water quality API: Fetching ${limit} records for ${years} years`);
 
-    // Get field names for both resources
-    const [fields2020, fields2010] = await Promise.all([
-      getFields(RESOURCE_2020_PRESENT),
-      years >= 6 ? getFields(RESOURCE_2010_2020) : Promise.resolve([]),
-    ]);
+    // Only fetch from 2020-present for speed (most recent data)
+    // Skip 2010-2020 to avoid timeout
+    const fields2020 = await getFields(RESOURCE_2020_PRESENT);
+    
+    // Fetch records from 2020-present only
+    console.log(`Fetching up to ${limit} records from 2020-present dataset...`);
+    const r2020 = await fetchAllRecords(RESOURCE_2020_PRESENT, limit);
+    const r2010: any[] = []; // Skip older data for now to improve performance
 
-    // Fetch all records
-    const [r2020, r2010] = await Promise.all([
-      fetchAllRecords(RESOURCE_2020_PRESENT, limit),
-      years >= 6 ? fetchAllRecords(RESOURCE_2010_2020, limit) : Promise.resolve([]),
-    ]);
-
+    console.log(`Fetched ${r2020.length} records, mapping to format...`);
+    
     // Map records to our format
     const mapped2020 = r2020.map(record => mapCkanRecordToWaterQuality(record, fields2020));
-    const mapped2010 = r2010.map(record => mapCkanRecordToWaterQuality(record, fields2010));
+    const mapped2010: any[] = [];
 
     const combined = [...mapped2020, ...mapped2010];
 
