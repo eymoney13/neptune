@@ -6,6 +6,12 @@ const CKAN_BASE = "https://data.ca.gov/api/3/action";
 // Mark route as dynamic
 export const dynamic = 'force-dynamic';
 
+// Server-side cache for deduplicated records (in-memory, resets on server restart)
+// In production, consider using Redis or similar for persistent caching
+let cachedDeduplicatedRecords: any[] | null = null;
+let cacheTimestamp: number = 0;
+const CACHE_TTL = 15 * 60 * 1000; // 15 minutes
+
 async function ckan(action: string, params: Record<string, string>) {
   const url = `${CKAN_BASE}/${action}?${new URLSearchParams(params).toString()}`;
   const res = await fetch(url, {
@@ -52,33 +58,57 @@ async function fetchRecordsFallback(
   max: number
 ): Promise<any[]> {
   console.log(`Fetching records using datastore_search...`);
-  // Fetch in chunks - increase chunk size for better performance
-  const chunkSize = 5000; // Increased from 1000
-  const chunksNeeded = Math.ceil(max / chunkSize);
+  const chunkSize = 5000;
   const allRecords: any[] = [];
   
-  // Fetch more records to account for duplicates - we want all unique locations
-  const fetchLimit = Math.min(max * 3, 150000); // Fetch up to 150k records to get all unique locations
+  // Fetch ALL records - continue until no more are returned
+  // Safety limit: 600,000 records (should cover 525,500 + buffer)
+  const safetyLimit = 600000;
+  let offset = 0;
+  let consecutiveEmptyChunks = 0;
+  const maxConsecutiveEmpty = 3; // Stop after 3 consecutive empty chunks
   
-  for (let i = 0; i < chunksNeeded && allRecords.length < fetchLimit; i++) {
+  while (allRecords.length < safetyLimit && consecutiveEmptyChunks < maxConsecutiveEmpty) {
     try {
       const json = await ckan("datastore_search", {
         resource_id: resourceId,
         limit: chunkSize.toString(),
-        offset: (i * chunkSize).toString(),
+        offset: offset.toString(),
       });
       
       const records = json?.result?.records ?? [];
-      if (records.length === 0) break; // No more records
       
+      if (records.length === 0) {
+        consecutiveEmptyChunks++;
+        console.log(`Empty chunk at offset ${offset}, consecutive empty: ${consecutiveEmptyChunks}`);
+        if (consecutiveEmptyChunks >= maxConsecutiveEmpty) {
+          console.log(`No more records found after ${offset} records`);
+          break;
+        }
+        offset += chunkSize; // Try next chunk anyway
+        continue;
+      }
+      
+      consecutiveEmptyChunks = 0; // Reset counter
       allRecords.push(...records);
+      offset += records.length;
       
-      // If we got fewer records than requested, we're done
-      if (records.length < chunkSize) break;
+      // Log progress every 50k records
+      if (allRecords.length % 50000 === 0) {
+        console.log(`Fetched ${allRecords.length} records so far...`);
+      }
+      
+      // If we got fewer records than requested, we might be at the end
+      if (records.length < chunkSize) {
+        console.log(`Got partial chunk (${records.length} < ${chunkSize}) at offset ${offset - records.length}`);
+        // Try one more chunk to be sure
+        offset += chunkSize;
+        continue;
+      }
     } catch (error) {
-      console.warn(`Error fetching chunk ${i}:`, error);
-      // Continue with what we have
+      console.warn(`Error fetching chunk at offset ${offset}:`, error);
       if (allRecords.length === 0) throw error;
+      // If we have some data, stop on error
       break;
     }
   }
@@ -157,7 +187,7 @@ async function fetchRecordsFallback(
   }
   
   const uniqueRecords = Array.from(seen.values()).slice(0, max);
-  console.log(`Deduplicated to ${uniqueRecords.length} unique stations (skipped ${skippedCount} records without StationName)`);
+  console.log(`Deduplicated to ${uniqueRecords.length} unique stations (from ${validRecords.length} valid records, skipped ${skippedCount} records without StationName)`);
   
   // Debug: Show sample record if we have issues
   if (uniqueRecords.length === 0 && validRecords.length > 0) {
@@ -167,8 +197,7 @@ async function fetchRecordsFallback(
       TargetLatitude: sample[latField] || sample['TargetLatitude'],
       TargetLongitude: sample[lonField] || sample['TargetLongitude'],
       SampleDateTime: sample[dateField] || sample['SampleDateTime'],
-      Result: sample[resultField] || sample['Result'],
-      Unit: sample[unitField] || sample['Unit'],
+      Result: resultField ? (sample[resultField] || sample['Result']) : sample['Result'],
       allKeys: Object.keys(sample).slice(0, 20)
     });
   }
@@ -180,10 +209,20 @@ export async function GET(req: NextRequest) {
   try {
     const url = new URL(req.url);
 
-    // Fetch all possible locations - increase limits significantly
-    const max = Math.min(Math.max(Number(url.searchParams.get("max") ?? "50000"), 100), 100000);
+    // Pagination support: limit and offset for final results
+    const limit = Number(url.searchParams.get("limit") ?? "0"); // 0 = no limit (fetch all)
+    const offset = Number(url.searchParams.get("offset") ?? "0");
+    
+    // Legacy max parameter support (for backward compatibility)
+    const requestedMax = Number(url.searchParams.get("max") ?? "0");
+    const max = requestedMax > 0 
+      ? (requestedMax >= 100000 ? 1000000 : Math.min(Math.max(requestedMax, 100), 100000))
+      : (limit > 0 ? limit + offset : 1000000); // If limit is set, use it; otherwise fetch all
+    
+    // If user wants all records, set a very high max for deduplication
+    const actualMax = requestedMax >= 500000 || limit === 0 ? 1000000 : max;
 
-    console.log(`Water quality API: Fetching up to ${max} unique stations...`);
+    console.log(`Water quality API: Fetching all records (will deduplicate to up to ${actualMax} unique stations, limit=${limit}, offset=${offset})...`);
 
     // 1) Discover schema so we do not guess column names
     let fields: string[];
@@ -217,21 +256,41 @@ export async function GET(req: NextRequest) {
 
     console.log(`Identified fields: StationName=${nameField}, TargetLatitude=${latField}, TargetLongitude=${lonField}, SampleDateTime=${dateField}, Result=${resultField}, Unit=${unitField}`);
 
-    // Use simpler fallback method directly (more reliable than SQL)
-    const records = await fetchRecordsFallback(
-      RESOURCE_2020_PRESENT,
-      latField,
-      lonField,
-      locationKeyField,
-      nameField,
-      dateField,
-      resultField,
-      max
-    );
-    console.log(`Found ${records.length} unique stations`);
+    // Check cache first
+    const now = Date.now();
+    let allUniqueRecords: any[];
+    
+    if (cachedDeduplicatedRecords && (now - cacheTimestamp) < CACHE_TTL) {
+      console.log(`Using cached deduplicated records (${cachedDeduplicatedRecords.length} stations)`);
+      allUniqueRecords = cachedDeduplicatedRecords;
+    } else {
+      console.log(`Cache miss or expired, fetching all records...`);
+      // Use simpler fallback method directly (more reliable than SQL)
+      const records = await fetchRecordsFallback(
+        RESOURCE_2020_PRESENT,
+        latField,
+        lonField,
+        locationKeyField,
+        nameField,
+        dateField,
+        resultField,
+        actualMax
+      );
+      console.log(`Found ${records.length} unique stations, caching...`);
+      
+      // Cache the deduplicated results
+      cachedDeduplicatedRecords = records;
+      cacheTimestamp = now;
+      allUniqueRecords = records;
+    }
+    const paginatedRecords = limit > 0 
+      ? allUniqueRecords.slice(offset, offset + limit)
+      : allUniqueRecords.slice(offset); // If limit is 0, return all from offset
+    
+    console.log(`Returning ${paginatedRecords.length} stations (offset=${offset}, limit=${limit}, total available: ${allUniqueRecords.length})`);
 
     // Map to our expected format - pull specific fields
-    const mappedRecords = records.map((record: any) => {
+    const mappedRecords = paginatedRecords.map((record: any) => {
       // Extract the specific fields we need
       const name = record[nameField] || record['StationName'] || '';
       const lat = record[latField] || record['TargetLatitude'] || '';
@@ -288,6 +347,10 @@ export async function GET(req: NextRequest) {
           date_field: dateField,
           result_field: resultField,
           returned: mappedRecords.length,
+          total_unique_stations: allUniqueRecords.length, // Total available after deduplication
+          has_more: limit > 0 && (offset + mappedRecords.length < allUniqueRecords.length), // Indicates if more records available
+          offset: offset,
+          limit: limit,
         },
         data: mappedRecords,
       },

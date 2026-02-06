@@ -39,13 +39,37 @@ export default function Home() {
         // Add a small delay to ensure UI updates
         await new Promise(resolve => setTimeout(resolve, 100));
         
-        setLoadingProgress('Processing water quality data...');
-        const summaries = await getCachedStationSummaries();
+        // Load data incrementally with progress updates and display stations as they load
+        const summaries = await getCachedStationSummaries(
+          (loaded, total) => {
+            if (total) {
+              setLoadingProgress(`Loading stations: ${loaded} of ${total}...`);
+            } else {
+              setLoadingProgress(`Loading stations: ${loaded}...`);
+            }
+          },
+          (batchSummaries) => {
+            // Update stations state incrementally as batches are loaded
+            setStations(prev => {
+              const combined = [...prev, ...batchSummaries];
+              // Remove duplicates based on station code
+              const unique = combined.filter((station, index, self) =>
+                index === self.findIndex(s => s.code === station.code)
+              );
+              return unique;
+            });
+            
+            // Set first station if we don't have one selected yet
+            if (!selectedStation && batchSummaries.length > 0) {
+              setSelectedStation(batchSummaries[0]);
+            }
+          }
+        );
         
-        setLoadingProgress('Processing station summaries...');
+        // Final update with all summaries (in case of duplicates)
         setStations(summaries);
         
-        if (summaries.length > 0) {
+        if (summaries.length > 0 && !selectedStation) {
           setSelectedStation(summaries[0]);
         }
         
@@ -171,8 +195,6 @@ Original error: ${errorMessage}`);
         } catch (err) {
           console.error('Error fetching prediction:', err);
           setPrediction(null);
-        } else {
-          console.error('Prediction API error:', await predResponse.text());
         }
       } catch (err) {
         console.error('Error loading prediction:', err);

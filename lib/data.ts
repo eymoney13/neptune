@@ -3,7 +3,9 @@ import { WaterQualityRecord, Station, StationSummary } from './types';
 let cachedData: WaterQualityRecord[] | null = null;
 let cachedStations: StationSummary[] | null = null;
 
-export async function loadCSVData(): Promise<WaterQualityRecord[]> {
+export async function loadCSVData(
+  onProgress?: (loaded: number, total: number | null) => void
+): Promise<WaterQualityRecord[]> {
   if (cachedData) {
     return cachedData;
   }
@@ -18,45 +20,90 @@ export async function loadCSVData(): Promise<WaterQualityRecord[]> {
     
     console.log(`Fetching water quality data from: ${baseUrl}/api/water-quality`);
     
-    // Create abort controller for timeout (Vercel has 60s limit for Pro, 10s for Hobby)
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 55000); // 55 seconds to be safe
+    // Fetch records incrementally in batches to avoid timeout
+    const batchSize = 1000; // Fetch 1000 stations at a time
+    const allRecords: WaterQualityRecord[] = [];
+    let offset = 0;
+    let totalStations: number | null = null;
+    let hasMore = true;
     
-    // Use max parameter to get unique stations (new optimized API)
-    // Fetch all possible locations - increased limit significantly
-    const max = 50000;
-    
-    const response = await fetch(`${baseUrl}/api/water-quality?max=${max}`, {
-      headers: {
-        'Accept': 'application/json',
-      },
-      signal: controller.signal,
-    });
-    
-    clearTimeout(timeoutId);
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      let errorMessage = `API request failed: ${response.status} ${response.statusText}`;
+    while (hasMore) {
+      // Create abort controller for each batch (30 seconds per batch)
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000);
+      
       try {
-        const errorJson = JSON.parse(errorText);
-        errorMessage = errorJson.error || errorJson.details || errorMessage;
-      } catch {
-        errorMessage = errorText || errorMessage;
+        const response = await fetch(
+          `${baseUrl}/api/water-quality?limit=${batchSize}&offset=${offset}`, 
+          {
+            headers: {
+              'Accept': 'application/json',
+            },
+            signal: controller.signal,
+          }
+        );
+        
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          let errorMessage = `API request failed: ${response.status} ${response.statusText}`;
+          try {
+            const errorJson = JSON.parse(errorText);
+            errorMessage = errorJson.error || errorJson.details || errorMessage;
+          } catch {
+            errorMessage = errorText || errorMessage;
+          }
+          throw new Error(errorMessage);
+        }
+
+        const json = await response.json();
+        
+        if (json.error) {
+          throw new Error(json.error);
+        }
+
+        const records = (json.data || []) as WaterQualityRecord[];
+        allRecords.push(...records);
+        
+        // Update total count from meta if available
+        if (json.meta?.total_unique_stations) {
+          totalStations = json.meta.total_unique_stations;
+        }
+        
+        // Check if there are more records
+        hasMore = json.meta?.has_more === true && records.length === batchSize;
+        
+        offset += records.length;
+        
+        // Report progress
+        if (onProgress) {
+          onProgress(allRecords.length, totalStations);
+        }
+        
+        console.log(`Loaded ${allRecords.length} records so far${totalStations ? ` of ${totalStations}` : ''}...`);
+        
+        // If we got fewer records than requested, we're done
+        if (records.length < batchSize) {
+          hasMore = false;
+        }
+      } catch (error: any) {
+        clearTimeout(timeoutId);
+        if (error.name === 'AbortError') {
+          // If we have some data, return what we have
+          if (allRecords.length > 0) {
+            console.warn(`Batch fetch timed out, returning ${allRecords.length} records loaded so far`);
+            break;
+          }
+          throw new Error('API request timed out. The data portal might be slow or unreachable.');
+        }
+        throw error;
       }
-      throw new Error(errorMessage);
     }
-
-    const json = await response.json();
     
-    if (json.error) {
-      throw new Error(json.error);
-    }
-
-    const records = (json.data || []) as WaterQualityRecord[];
-    console.log(`Loaded ${records.length} records from API`);
-    cachedData = records;
-    return records;
+    console.log(`Loaded ${allRecords.length} total records from API`);
+    cachedData = allRecords;
+    return allRecords;
   } catch (error) {
     console.error('Error loading water quality data:', error);
     throw error;
@@ -166,12 +213,109 @@ export function getWaterQualityColor(result: number): string {
   return '#ef4444'; // red - unsafe, not recommended to swim
 }
 
-export async function getCachedStationSummaries(): Promise<StationSummary[]> {
+export async function getCachedStationSummaries(
+  onProgress?: (loaded: number, total: number | null) => void,
+  onBatchLoaded?: (summaries: StationSummary[]) => void
+): Promise<StationSummary[]> {
   if (cachedStations) {
     return cachedStations;
   }
 
-  const records = await loadCSVData();
-  cachedStations = createStationSummaries(records);
-  return cachedStations;
+  // For incremental display, fetch records in batches from the API
+  // First batch will be slow (builds cache), subsequent batches will be fast (use cache)
+  if (onBatchLoaded) {
+    const baseUrl = typeof window !== 'undefined' 
+      ? window.location.origin 
+      : process.env.NEXT_PUBLIC_API_URL || process.env.VERCEL_URL 
+        ? `https://${process.env.VERCEL_URL}` 
+        : 'http://localhost:3000';
+    
+    const batchSize = 500; // Fetch 500 stations at a time from API
+    const allSummaries: StationSummary[] = [];
+    let offset = 0;
+    let totalStations: number | null = null;
+    let hasMore = true;
+    let isFirstRequest = true;
+    
+    while (hasMore) {
+      // First request gets longer timeout (needs to fetch all records and build cache)
+      // Subsequent requests are fast (use cache) so shorter timeout is fine
+      const timeout = isFirstRequest ? 600000 : 60000; // 10 min for first, 1 min for rest
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeout);
+      
+      try {
+        if (isFirstRequest && onProgress) {
+          onProgress(0, null);
+        }
+        
+        const response = await fetch(
+          `${baseUrl}/api/water-quality?limit=${batchSize}&offset=${offset}`, 
+          {
+            headers: { 'Accept': 'application/json' },
+            signal: controller.signal,
+          }
+        );
+        
+        clearTimeout(timeoutId);
+        
+        if (!response.ok) {
+          throw new Error(`API request failed: ${response.status}`);
+        }
+        
+        const json = await response.json();
+        if (json.error) throw new Error(json.error);
+        
+        const records = (json.data || []) as WaterQualityRecord[];
+        
+        // Update total count from meta if available
+        if (json.meta?.total_unique_stations) {
+          totalStations = json.meta.total_unique_stations;
+        }
+        
+        // Process this batch into summaries
+        const batchSummaries = createStationSummaries(records);
+        allSummaries.push(...batchSummaries);
+        
+        // Update UI with this batch
+        onBatchLoaded(batchSummaries);
+        
+        if (onProgress) {
+          onProgress(allSummaries.length, totalStations);
+        }
+        
+        // Check if there are more records
+        hasMore = json.meta?.has_more === true && records.length === batchSize;
+        offset += records.length;
+        isFirstRequest = false; // After first request, cache should be built
+        
+        // If we got fewer records than requested, we're done
+        if (records.length < batchSize) {
+          hasMore = false;
+        }
+        
+        // Small delay to allow UI to update
+        await new Promise(resolve => setTimeout(resolve, 100));
+      } catch (error: any) {
+        clearTimeout(timeoutId);
+        if (error.name === 'AbortError') {
+          // If we have some data, return what we have
+          if (allSummaries.length > 0) {
+            console.warn(`Batch fetch timed out, returning ${allSummaries.length} stations loaded so far`);
+            break;
+          }
+          throw new Error(`Request timed out after loading ${allSummaries.length} stations. The dataset is large and may take a few minutes to load. Please try again.`);
+        }
+        throw error;
+      }
+    }
+    
+    cachedStations = allSummaries;
+    return allSummaries;
+  } else {
+    // Fallback to original method
+    const records = await loadCSVData(onProgress);
+    cachedStations = createStationSummaries(records);
+    return cachedStations;
+  }
 }
