@@ -52,12 +52,15 @@ async function fetchRecordsFallback(
   max: number
 ): Promise<any[]> {
   console.log(`Fetching records using datastore_search...`);
-  // Fetch in smaller chunks to avoid timeout
-  const chunkSize = 1000;
+  // Fetch in chunks - increase chunk size for better performance
+  const chunkSize = 5000; // Increased from 1000
   const chunksNeeded = Math.ceil(max / chunkSize);
   const allRecords: any[] = [];
   
-  for (let i = 0; i < chunksNeeded && allRecords.length < max * 2; i++) {
+  // Fetch more records to account for duplicates - we want all unique locations
+  const fetchLimit = Math.min(max * 3, 150000); // Fetch up to 150k records to get all unique locations
+  
+  for (let i = 0; i < chunksNeeded && allRecords.length < fetchLimit; i++) {
     try {
       const json = await ckan("datastore_search", {
         resource_id: resourceId,
@@ -177,8 +180,8 @@ export async function GET(req: NextRequest) {
   try {
     const url = new URL(req.url);
 
-    // Start with smaller limit to avoid timeouts
-    const max = Math.min(Math.max(Number(url.searchParams.get("max") ?? "2000"), 100), 5000);
+    // Fetch all possible locations - increase limits significantly
+    const max = Math.min(Math.max(Number(url.searchParams.get("max") ?? "50000"), 100), 100000);
 
     console.log(`Water quality API: Fetching up to ${max} unique stations...`);
 
