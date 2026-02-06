@@ -128,30 +128,49 @@ Original error: ${errorMessage}`);
       setLoadingPrediction(true);
       try {
         // Load environmental data first
-        const envResponse = await fetch(
-          `/api/env-data?station_code=${selectedStation.code}&latitude=${selectedStation.latitude}&longitude=${selectedStation.longitude}`
-        );
-        if (envResponse.ok) {
-          const envResult = await envResponse.json();
-          setEnvData(envResult);
+        try {
+          const envResponse = await fetch(
+            `/api/env-data?station_code=${encodeURIComponent(selectedStation.code)}&latitude=${selectedStation.latitude}&longitude=${selectedStation.longitude}`
+          );
+          if (envResponse.ok) {
+            const envResult = await envResponse.json();
+            setEnvData(envResult);
+          } else {
+            const errorData = await envResponse.json().catch(() => ({ error: 'Unknown error' }));
+            console.warn('Environmental data API error:', errorData);
+            // Continue even if env data fails - prediction can use defaults
+          }
+        } catch (err) {
+          console.error('Error fetching environmental data:', err);
+          // Continue even if env data fails
         }
 
         // Then get prediction
-        const predResponse = await fetch('/api/predict', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            station_code: selectedStation.code,
-            latitude: selectedStation.latitude,
-            longitude: selectedStation.longitude,
-            use_env_data: true,
-            use_mock_model: true, // Set to false when real models are available
-          }),
-        });
+        try {
+          const predResponse = await fetch('/api/predict', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              station_code: selectedStation.code,
+              latitude: selectedStation.latitude,
+              longitude: selectedStation.longitude,
+              use_env_data: true,
+              use_mock_model: true, // Set to false when real models are available
+            }),
+          });
 
-        if (predResponse.ok) {
-          const predResult = await predResponse.json();
-          setPrediction(predResult);
+          if (predResponse.ok) {
+            const predResult = await predResponse.json();
+            setPrediction(predResult);
+          } else {
+            const errorData = await predResponse.json().catch(() => ({ error: 'Unknown error' }));
+            console.error('Prediction API error:', errorData);
+            // Set error state so user knows prediction failed
+            setPrediction(null);
+          }
+        } catch (err) {
+          console.error('Error fetching prediction:', err);
+          setPrediction(null);
         } else {
           console.error('Prediction API error:', await predResponse.text());
         }
