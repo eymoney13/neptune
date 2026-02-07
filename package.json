@@ -7,32 +7,34 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "ingest:csv": "tsx scripts/ingest-csv.ts"
+    "ingest:csv": "tsx scripts/ingest-csv.ts",
+    "ingest:stations": "tsx scripts/ingest-ckan-stations.ts"
   },
   "dependencies": {
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "next": "^14.0.0",
+    "commander": "^11.1.0",
+    "dotenv": "^17.2.4",
     "leaflet": "^1.9.4",
-    "react-leaflet": "^4.2.1",
-    "recharts": "^2.10.3",
+    "next": "^14.0.0",
     "papaparse": "^5.4.1",
     "pg": "^8.11.3",
-    "commander": "^11.1.0"
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-leaflet": "^4.2.1",
+    "recharts": "^2.10.3"
   },
   "devDependencies": {
-    "typescript": "^5.0.0",
-    "@types/node": "^20.0.0",
-    "@types/react": "^18.2.0",
-    "@types/react-dom": "^18.2.0",
     "@types/leaflet": "^1.9.8",
+    "@types/node": "^20.0.0",
     "@types/papaparse": "^5.3.14",
     "@types/pg": "^8.10.9",
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
     "autoprefixer": "^10.4.16",
-    "postcss": "^8.4.32",
-    "tailwindcss": "^3.4.0",
     "eslint": "^8.0.0",
     "eslint-config-next": "^14.0.0",
-    "tsx": "^4.7.0"
+    "postcss": "^8.4.32",
+    "tailwindcss": "^3.4.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.0.0"
   }
 }

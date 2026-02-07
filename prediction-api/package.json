@@ -1,0 +1,11 @@
+{
+  "name": "water-quality-prediction-api",
+  "version": "1.0.0",
+  "description": "FastAPI backend for water quality predictions",
+  "scripts": {
+    "start": "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, useMap, Circle } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { StationSummary } from '@/lib/types';
@@ -86,20 +86,6 @@ export default function Map({
     });
   };
 
-  const getHeatMapOpacity = (result: number): number => {
-    // Higher CFU = higher opacity for heat map effect
-    if (result < 70) return 0.15;
-    if (result < 104) return 0.35;
-    return 0.55;
-  };
-
-  const getHeatMapRadius = (result: number): number => {
-    // Higher CFU = larger radius (in meters)
-    if (result < 70) return 800;
-    if (result < 104) return 1200;
-    return 1800;
-  };
-
   const handleViewModeChange = (mode: 'nowcast' | 'forecast') => {
     setLocalViewMode(mode);
     onViewModeChange?.(mode);
@@ -182,29 +168,6 @@ export default function Map({
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
         <MapController center={getCenter()} />
-        
-        {/* Heat Map Circles */}
-        {stations.map((station) => {
-          if (station.latitude === 0 || station.longitude === 0) return null;
-          
-          const color = getWaterQualityColor(station.latestResult);
-          const opacity = getHeatMapOpacity(station.latestResult);
-          const radius = getHeatMapRadius(station.latestResult);
-          
-          return (
-            <Circle
-              key={`heat-${station.code}`}
-              center={[station.latitude, station.longitude]}
-              radius={radius}
-              pathOptions={{
-                fillColor: color,
-                fillOpacity: opacity,
-                color: 'transparent',
-                weight: 0,
-              }}
-            />
-          );
-        })}
 
         {/* Station Markers */}
         {stations.map((station) => {

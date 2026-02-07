@@ -26,11 +26,14 @@ export async function loadCSVData(
     let offset = 0;
     let totalStations: number | null = null;
     let hasMore = true;
+    let isFirstRequest = true;
     
     while (hasMore) {
-      // Create abort controller for each batch (30 seconds per batch)
+      // First request gets longer timeout (needs to fetch all records and build cache)
+      // Subsequent requests are fast (use cache) so shorter timeout is fine
+      const timeout = isFirstRequest ? 600000 : 60000; // 10 min for first, 1 min for rest
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000);
+      const timeoutId = setTimeout(() => controller.abort(), timeout);
       
       try {
         const response = await fetch(
@@ -87,6 +90,9 @@ export async function loadCSVData(
         if (records.length < batchSize) {
           hasMore = false;
         }
+        
+        // After first request, cache should be built so subsequent requests are fast
+        isFirstRequest = false;
       } catch (error: any) {
         clearTimeout(timeoutId);
         if (error.name === 'AbortError') {
@@ -95,7 +101,7 @@ export async function loadCSVData(
             console.warn(`Batch fetch timed out, returning ${allRecords.length} records loaded so far`);
             break;
           }
-          throw new Error('API request timed out. The data portal might be slow or unreachable.');
+          throw new Error(`API request timed out after ${isFirstRequest ? '10 minutes' : '1 minute'}. The data portal might be slow or unreachable.`);
         }
         throw error;
       }
@@ -230,6 +236,7 @@ export async function getCachedStationSummaries(
         ? `https://${process.env.VERCEL_URL}` 
         : 'http://localhost:3000';
     
+    console.log(`Fetching water quality data from: ${baseUrl}/api/water-quality`);
     const batchSize = 500; // Fetch 500 stations at a time from API
     const allSummaries: StationSummary[] = [];
     let offset = 0;
@@ -273,10 +280,17 @@ export async function getCachedStationSummaries(
           totalStations = json.meta.total_unique_stations;
         }
         
+        // Accumulate records for cachedData (so loadCSVData can use them later)
+        if (!cachedData) {
+          cachedData = [];
+        }
+        cachedData.push(...records);
+        
         // Process this batch into summaries
         const batchSummaries = createStationSummaries(records);
         allSummaries.push(...batchSummaries);
         
+        console.log(`Loaded ${allSummaries.length} stations so far${totalStations ? ` of ${totalStations}` : ''}...`);
         // Update UI with this batch
         onBatchLoaded(batchSummaries);
         
@@ -310,6 +324,7 @@ export async function getCachedStationSummaries(
       }
     }
     
+    console.log(`Loaded ${allSummaries.length} total stations from API`);
     cachedStations = allSummaries;
     return allSummaries;
   } else {

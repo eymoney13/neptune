@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getStationsFromDb } from "@/lib/db";
 
 const RESOURCE_2020_PRESENT = "15a63495-8d9f-4a49-b43a-3092ef3106b9";
 const CKAN_BASE = "https://data.ca.gov/api/3/action";
@@ -16,8 +17,7 @@ async function ckan(action: string, params: Record<string, string>) {
   const url = `${CKAN_BASE}/${action}?${new URLSearchParams(params).toString()}`;
   const res = await fetch(url, {
     headers: { accept: "application/json" },
-    // Helps Vercel edge caching for repeat demo loads
-    next: { revalidate: 60 * 15 }, // 15 minutes
+    cache: "no-store", // CKAN responses can exceed 2MB; Next.js cache fails above that
   });
   if (!res.ok) throw new Error(`CKAN HTTP ${res.status} for ${action}`);
   const json = await res.json();
@@ -222,56 +222,50 @@ export async function GET(req: NextRequest) {
     // If user wants all records, set a very high max for deduplication
     const actualMax = requestedMax >= 500000 || limit === 0 ? 1000000 : max;
 
-    console.log(`Water quality API: Fetching all records (will deduplicate to up to ${actualMax} unique stations, limit=${limit}, offset=${offset})...`);
+    console.log(`Water quality API: limit=${limit}, offset=${offset}`);
 
-    // 1) Discover schema so we do not guess column names
-    let fields: string[];
-    try {
-      fields = await getFields(RESOURCE_2020_PRESENT);
-      console.log(`Found ${fields.length} fields in dataset`);
-    } catch (error) {
-      console.error('Failed to get fields:', error);
-      throw new Error(`Failed to connect to CKAN API: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-
-    // 2) Identify specific fields we need: StationName, TargetLatitude, TargetLongitude, Result, Unit, SampleDateTime
-    const latField = requireField(
-      pickFirst(fields, ["TargetLatitude", "target_latitude"]),
-      "TargetLatitude"
-    );
-    const lonField = requireField(
-      pickFirst(fields, ["TargetLongitude", "target_longitude"]),
-      "TargetLongitude"
-    );
-    const nameField = requireField(
-      pickFirst(fields, ["StationName", "station_name"]),
-      "StationName"
-    );
-    const dateField = pickFirst(fields, ["SampleDateTime", "sample_datetime", "SampleDate", "sample_date"]) || 'SampleDate';
-    const resultField = pickFirst(fields, ["Result", "result"]);
-    const unitField = pickFirst(fields, ["Unit", "unit"]);
-
-    // Use StationName as the location key for deduplication
-    const locationKeyField = nameField;
-
-    console.log(`Identified fields: StationName=${nameField}, TargetLatitude=${latField}, TargetLongitude=${lonField}, SampleDateTime=${dateField}, Result=${resultField}, Unit=${unitField}`);
-
-    // Check cache first
+    // Fast path: try Supabase first (no CKAN call if DB has data)
     const now = Date.now();
     let allUniqueRecords: any[];
-    
+    let latField = 'TargetLatitude';
+    let lonField = 'TargetLongitude';
+    let nameField = 'StationName';
+    let locationKeyField = 'StationName';
+    let dateField = 'SampleDate';
+    let resultField: string | null = 'Result';
+    let unitField: string | null = 'Unit';
+
     if (cachedDeduplicatedRecords && (now - cacheTimestamp) < CACHE_TTL) {
       console.log(`Using cached deduplicated records (${cachedDeduplicatedRecords.length} stations)`);
       allUniqueRecords = cachedDeduplicatedRecords;
     } else {
-      console.log(`Cache miss or expired, fetching all records...`);
-      // Use simpler fallback method directly (more reliable than SQL)
-      const records = await fetchRecordsFallback(
-        RESOURCE_2020_PRESENT,
-        latField,
-        lonField,
-        locationKeyField,
-        nameField,
+      let dbRecords: Awaited<ReturnType<typeof getStationsFromDb>> = null;
+      try {
+        dbRecords = await getStationsFromDb();
+      } catch (err) {
+        console.warn('Database read failed, falling back to CKAN:', err instanceof Error ? err.message : err);
+      }
+      if (dbRecords && dbRecords.length > 0) {
+        console.log(`Using ${dbRecords.length} stations from database`);
+        cachedDeduplicatedRecords = dbRecords;
+        cacheTimestamp = now;
+        allUniqueRecords = dbRecords;
+      } else {
+        console.log(`Database empty, fetching from CKAN...`);
+        const fields = await getFields(RESOURCE_2020_PRESENT);
+        latField = requireField(pickFirst(fields, ["TargetLatitude", "target_latitude"]), "TargetLatitude");
+        lonField = requireField(pickFirst(fields, ["TargetLongitude", "target_longitude"]), "TargetLongitude");
+        nameField = requireField(pickFirst(fields, ["StationName", "station_name"]), "StationName");
+        locationKeyField = nameField;
+        dateField = pickFirst(fields, ["SampleDateTime", "sample_datetime", "SampleDate", "sample_date"]) || 'SampleDate';
+        resultField = pickFirst(fields, ["Result", "result"]);
+        unitField = pickFirst(fields, ["Unit", "unit"]);
+        const records = await fetchRecordsFallback(
+          RESOURCE_2020_PRESENT,
+          latField,
+          lonField,
+          nameField,
+          nameField,
         dateField,
         resultField,
         actualMax
@@ -282,6 +276,7 @@ export async function GET(req: NextRequest) {
       cachedDeduplicatedRecords = records;
       cacheTimestamp = now;
       allUniqueRecords = records;
+      }
     }
     const paginatedRecords = limit > 0 
       ? allUniqueRecords.slice(offset, offset + limit)
@@ -289,15 +284,14 @@ export async function GET(req: NextRequest) {
     
     console.log(`Returning ${paginatedRecords.length} stations (offset=${offset}, limit=${limit}, total available: ${allUniqueRecords.length})`);
 
-    // Map to our expected format - pull specific fields
+    // Map to our expected format - pull specific fields (handles both DB and CKAN record shapes)
     const mappedRecords = paginatedRecords.map((record: any) => {
-      // Extract the specific fields we need
-      const name = record[nameField] || record['StationName'] || '';
-      const lat = record[latField] || record['TargetLatitude'] || '';
-      const lon = record[lonField] || record['TargetLongitude'] || '';
-      const date = record[dateField] || record['SampleDateTime'] || record['SampleDate'] || '';
-      const result = record[resultField] || record['Result'] || '';
-      const unit = record[unitField] || record['Unit'] || '';
+      const name = record[nameField] ?? record.StationName ?? record['StationName'] ?? '';
+      const lat = record[latField] ?? record.TargetLatitude ?? record['TargetLatitude'] ?? '';
+      const lon = record[lonField] ?? record.TargetLongitude ?? record['TargetLongitude'] ?? '';
+      const date = record[dateField] ?? record.SampleDate ?? record['SampleDateTime'] ?? record['SampleDate'] ?? '';
+      const result = (resultField ? record[resultField] : record.Result ?? record['Result']) ?? record.Result ?? record['Result'] ?? '';
+      const unit = (unitField ? record[unitField] : record.Unit ?? record['Unit']) ?? record.Unit ?? record['Unit'] ?? '';
       
       return {
         StationName: String(name || ''),
