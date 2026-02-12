@@ -110,6 +110,7 @@ def get_model_type(model: Any) -> str:
     
     # Map common model types
     type_map = {
+        "EnhancedHeuristicModel": "heuristic",
         "MockModel": "mock",
         "RandomForestRegressor": "random_forest",
         "GradientBoostingRegressor": "gradient_boosting",
