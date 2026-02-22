@@ -5,7 +5,7 @@ import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { StationSummary } from '@/lib/types';
-import { getWaterQualityColor } from '@/lib/data';
+import { cfuToScore, getColor } from '@/lib/platform-utils';
 
 // Fix for default marker icons in Next.js
 const iconRetinaUrl = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png';
@@ -27,6 +27,7 @@ interface MapProps {
   forecastDays?: number;
   onViewModeChange?: (mode: 'nowcast' | 'forecast') => void;
   onForecastDaysChange?: (days: number) => void;
+  theme?: 'light' | 'dark';
 }
 
 function MapController({ center }: { center: [number, number] }) {
@@ -41,14 +42,15 @@ function MapController({ center }: { center: [number, number] }) {
   return null;
 }
 
-export default function Map({ 
-  stations, 
-  selectedStation, 
+export default function Map({
+  stations,
+  selectedStation,
   onStationSelect,
   viewMode = 'nowcast',
   forecastDays = 1,
   onViewModeChange,
-  onForecastDaysChange
+  onForecastDaysChange,
+  theme = 'light',
 }: MapProps) {
   const mapRef = useRef<L.Map | null>(null);
   const [localViewMode, setLocalViewMode] = useState<'nowcast' | 'forecast'>(viewMode);
@@ -70,7 +72,8 @@ export default function Map({
   };
 
   const createCustomIcon = (result: number) => {
-    const color = getWaterQualityColor(result);
+    const score = cfuToScore(result);
+    const color = getColor(score);
     return L.divIcon({
       className: 'custom-marker',
       html: `<div style="
@@ -110,52 +113,19 @@ export default function Map({
     return forecastDate.toLocaleDateString('en-US', options);
   };
 
+  const isDark = theme === 'dark';
+  const controlsCls = isDark
+    ? 'bg-[rgba(11,13,20,0.9)] border border-white/10 text-white'
+    : 'bg-white shadow-lg text-gray-900';
+  const btnActiveCls = isDark ? 'bg-[#00D68F] text-[#0a0d18]' : 'bg-primary-600 text-white';
+  const btnInactiveCls = isDark
+    ? 'bg-white/10 text-white/70 hover:bg-white/15'
+    : 'bg-gray-100 text-gray-700 hover:bg-gray-200';
+  const sliderBorderCls = isDark ? 'border-white/10' : 'border-gray-200';
+  const labelCls = isDark ? 'text-white/80' : 'text-gray-700';
+
   return (
     <div className="w-full h-full rounded-lg overflow-hidden shadow-sm relative">
-      {/* Controls Overlay */}
-      <div className="absolute top-4 left-4 z-[1000] bg-white rounded-lg shadow-lg p-3 flex items-center gap-4">
-        {/* View Mode Toggle */}
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => handleViewModeChange('nowcast')}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              localViewMode === 'nowcast'
-                ? 'bg-primary-600 text-white'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-            }`}
-          >
-            Nowcast
-          </button>
-          <button
-            onClick={() => handleViewModeChange('forecast')}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              localViewMode === 'forecast'
-                ? 'bg-primary-600 text-white'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-            }`}
-          >
-            Forecast
-          </button>
-        </div>
-
-        {/* Forecast Days Slider */}
-        {localViewMode === 'forecast' && (
-          <div className="flex items-center gap-2 border-l border-gray-200 pl-4">
-            <label className="text-sm text-gray-700 whitespace-nowrap">
-              {getForecastDate(localForecastDays)}
-            </label>
-            <input
-              type="range"
-              min="1"
-              max="3"
-              value={localForecastDays}
-              onChange={(e) => handleForecastDaysChange(parseInt(e.target.value))}
-              className="w-24"
-            />
-          </div>
-        )}
-      </div>
-
       <MapContainer
         center={getCenter()}
         zoom={10}
@@ -186,30 +156,24 @@ export default function Map({
             >
               <Popup>
                 {(() => {
-                  // Determine popup colors based on latest test result
-                  const getPopupColors = (result: number) => {
-                    if (result < 70) {
-                      return 'bg-green-50 border-green-300';
-                    } else if (result < 104) {
-                      return 'bg-yellow-50 border-yellow-300';
-                    } else {
-                      return 'bg-red-50 border-red-300';
-                    }
-                  };
-                  
-                  const popupColors = getPopupColors(station.latestResult);
-                  
+                  const score = cfuToScore(station.latestResult);
+                  const color = getColor(score);
+                  const tier = score >= 95 ? 'Excellent' : score >= 85 ? 'Good' : score >= 70 ? 'Fair' : score >= 50 ? 'Caution' : score >= 30 ? 'Poor' : 'Unsafe';
                   return (
-                    <div className={`p-3 min-w-[200px] rounded-lg border-2 ${popupColors}`}>
-                      <h3 className="font-semibold text-sm mb-2">{station.name}</h3>
-                      <div className="text-xs space-y-1 text-gray-700">
-                        <p>Latest: {station.latestResult.toFixed(1)} {
-                          station.latestResult < 70 ? '✓ Safe' : 
-                          station.latestResult < 104 ? '⚠ Poor' : 
-                          '✗ Unsafe'
-                        }</p>
-                        <p>Date: {new Date(station.latestDate).toLocaleDateString()}</p>
-                        <p>30-day Avg: {station.avg30Day.toFixed(1)}</p>
+                    <div
+                      className="p-3 min-w-[200px] rounded-lg border-2"
+                      style={{
+                        backgroundColor: `${color}15`,
+                        borderColor: `${color}40`,
+                      }}
+                    >
+                      <h3 className="font-semibold text-sm mb-2" style={{ color: '#0a0d18' }}>
+                        {station.name}
+                      </h3>
+                      <div className="text-xs space-y-1" style={{ color: '#1a1e2e' }}>
+                        <p>Latest Test Date: {new Date(station.latestDate).toLocaleDateString()}</p>
+                        <p>Result: {station.latestResult.toFixed(1)} CFU</p>
+                        <p>30 day avg: {station.avg30Day.toFixed(1)}</p>
                       </div>
                     </div>
                   );

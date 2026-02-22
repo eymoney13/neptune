@@ -5,14 +5,15 @@ import dynamic from 'next/dynamic';
 import Image from 'next/image';
 import { StationSummary, WaterQualityRecord, PredictionResult, EnvironmentalData } from '@/lib/types';
 import { getCachedStationSummaries, loadCSVData, getStationRecords } from '@/lib/data';
-import Insights from './components/Insights';
+import { transformStationsToArea, type SiteData } from '@/lib/platform-utils';
+import { ListView, Legend, SiteDetail } from './components/PlatformUI';
 
 // Dynamically import Map to avoid SSR issues with Leaflet
 const Map = dynamic(() => import('./components/Map'), {
   ssr: false,
   loading: () => (
-    <div className="w-full h-full flex items-center justify-center bg-gray-100 rounded-lg">
-      <p className="text-gray-500">Loading map...</p>
+    <div className="w-full h-full flex items-center justify-center rounded-lg platform-map-loading">
+      <p className="text-platform-muted">Loading map...</p>
     </div>
   ),
 });
@@ -27,19 +28,16 @@ export default function Home() {
   const [prediction, setPrediction] = useState<PredictionResult | null>(null);
   const [envData, setEnvData] = useState<EnvironmentalData | null>(null);
   const [loadingPrediction, setLoadingPrediction] = useState(false);
-  const [viewMode, setViewMode] = useState<'nowcast' | 'forecast'>('nowcast');
-  const [forecastDays, setForecastDays] = useState(1);
+  const [tab, setTab] = useState<'list' | 'map'>('list');
 
   useEffect(() => {
     async function loadData() {
       try {
         setLoading(true);
         setLoadingProgress('Loading water quality data from API...');
-        
-        // Add a small delay to ensure UI updates
-        await new Promise(resolve => setTimeout(resolve, 100));
-        
-        // Load data incrementally with progress updates and display stations as they load
+
+        await new Promise((resolve) => setTimeout(resolve, 100));
+
         const summaries = await getCachedStationSummaries(
           (loaded, total) => {
             if (total) {
@@ -49,40 +47,41 @@ export default function Home() {
             }
           },
           (batchSummaries) => {
-            // Update stations state incrementally as batches are loaded
-            setStations(prev => {
+            setStations((prev) => {
               const combined = [...prev, ...batchSummaries];
-              // Remove duplicates based on station code
-              const unique = combined.filter((station, index, self) =>
-                index === self.findIndex(s => s.code === station.code)
+              const unique = combined.filter(
+                (station, index, self) => index === self.findIndex((s) => s.code === station.code)
               );
               return unique;
             });
-            
-            // Set first station if we don't have one selected yet
+
             if (!selectedStation && batchSummaries.length > 0) {
               setSelectedStation(batchSummaries[0]);
             }
           }
         );
-        
-        // Final update with all summaries (in case of duplicates)
+
         setStations(summaries);
-        
+
         if (summaries.length > 0 && !selectedStation) {
           setSelectedStation(summaries[0]);
         }
-        
+
         setLoadingProgress('Complete!');
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'Failed to load data';
         setError(errorMessage);
         console.error('Error loading data:', err);
-        
-        // Provide more helpful error message
-        if (errorMessage.includes('Failed to') || errorMessage.includes('Not Found') || errorMessage.includes('404') || errorMessage.includes('API request failed')) {
-          const isProduction = typeof window !== 'undefined' && window.location.hostname !== 'localhost';
-          
+
+        if (
+          errorMessage.includes('Failed to') ||
+          errorMessage.includes('Not Found') ||
+          errorMessage.includes('404') ||
+          errorMessage.includes('API request failed')
+        ) {
+          const isProduction =
+            typeof window !== 'undefined' && window.location.hostname !== 'localhost';
+
           if (isProduction) {
             setError(`Failed to load water quality data from API.
 
@@ -126,6 +125,7 @@ Original error: ${errorMessage}`);
     }
 
     loadData();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -144,14 +144,12 @@ Original error: ${errorMessage}`);
     loadStationRecords();
   }, [selectedStation]);
 
-  // Load predictions and environmental data when station changes
   useEffect(() => {
     async function loadPrediction() {
       if (!selectedStation) return;
 
       setLoadingPrediction(true);
       try {
-        // Load environmental data first
         try {
           const envResponse = await fetch(
             `/api/env-data?station_code=${encodeURIComponent(selectedStation.code)}&latitude=${selectedStation.latitude}&longitude=${selectedStation.longitude}`
@@ -162,14 +160,11 @@ Original error: ${errorMessage}`);
           } else {
             const errorData = await envResponse.json().catch(() => ({ error: 'Unknown error' }));
             console.warn('Environmental data API error:', errorData);
-            // Continue even if env data fails - prediction can use defaults
           }
         } catch (err) {
           console.error('Error fetching environmental data:', err);
-          // Continue even if env data fails
         }
 
-        // Then get prediction
         try {
           const predResponse = await fetch('/api/predict', {
             method: 'POST',
@@ -179,7 +174,7 @@ Original error: ${errorMessage}`);
               latitude: selectedStation.latitude,
               longitude: selectedStation.longitude,
               use_env_data: true,
-              use_mock_model: true, // Set to false when real models are available
+              use_mock_model: true,
             }),
           });
 
@@ -189,7 +184,6 @@ Original error: ${errorMessage}`);
           } else {
             const errorData = await predResponse.json().catch(() => ({ error: 'Unknown error' }));
             console.error('Prediction API error:', errorData);
-            // Set error state so user knows prediction failed
             setPrediction(null);
           }
         } catch (err) {
@@ -210,14 +204,24 @@ Original error: ${errorMessage}`);
     setSelectedStation(station);
   };
 
+  const handleSiteSelectFromList = (site: SiteData) => {
+    const station = stations.find((s) => s.code === site.stationCode);
+    if (station) setSelectedStation(station);
+  };
+
+  const area = transformStationsToArea(stations, selectedStation, prediction, envData);
+  const selectedSite = selectedStation
+    ? area.sites.find((s) => s.stationCode === selectedStation.code)
+    : null;
+
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-center max-w-md px-4">
-          <div className="inline-block animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary-600 mb-4"></div>
-          <p className="text-gray-600 font-medium mb-2">Loading water quality data...</p>
-          <p className="text-sm text-gray-500">{loadingProgress}</p>
-          <p className="text-xs text-gray-400 mt-4">
+      <div className="platform-loading-screen">
+        <div className="platform-loading-content">
+          <div className="platform-spinner" />
+          <p className="platform-loading-text">Loading water quality data...</p>
+          <p className="platform-loading-progress">{loadingProgress}</p>
+          <p className="platform-loading-hint">
             Loading data from California Data Portal API. This may take a minute...
           </p>
         </div>
@@ -227,12 +231,13 @@ Original error: ${errorMessage}`);
 
   if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-center max-w-md">
-          <h1 className="text-2xl font-semibold text-gray-900 mb-2">Error Loading Data</h1>
-          <p className="text-gray-600 mb-4">{error}</p>
-          <p className="text-sm text-gray-500">
-            The app fetches data from the California Data Portal API. Check the browser console for details.
+      <div className="platform-loading-screen">
+        <div className="platform-error-content">
+          <h1 className="platform-error-title">Error Loading Data</h1>
+          <p className="platform-error-text">{error}</p>
+          <p className="platform-error-hint">
+            The app fetches data from the California Data Portal API. Check the browser console for
+            details.
           </p>
         </div>
       </div>
@@ -240,81 +245,97 @@ Original error: ${errorMessage}`);
   }
 
   return (
-    <div className="min-h-screen" style={{ backgroundColor: '#01395E' }}>
-      {/* Header */}
-      <header className="sticky top-0 z-10 shadow-sm" style={{ backgroundColor: '#01395E' }}>
-        <div className="max-w-full mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex items-center">
-            {/* Logo */}
-            <div className="flex items-center">
-              <Image
-                src="/logo.jpg"
-                alt="Project Neptune"
-                width={64}
-                height={64}
-                className="h-16 w-auto object-contain"
+    <div className="platform-root">
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&display=swap');
+        @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+        @keyframes slideUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
+        @keyframes cardIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+        @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
+      `}</style>
+
+      <div className="platform-glow" />
+
+      <div className="platform-container">
+        <header className="platform-header">
+          <div className="platform-header-top">
+            <Image
+              src="/logo.jpg"
+              alt="Project Neptune"
+              width={48}
+              height={48}
+              className="platform-logo"
+            />
+            <div className="platform-header-badge">
+              <span className="platform-badge-dot" />
+              Live · AI-Predicted Water Quality
+            </div>
+          </div>
+          <h1 className="platform-title">California Beaches</h1>
+          <p className="platform-subtitle">
+            Safety scores across {area.sites.length} testing sites — predicted in real-time with
+            3-day forecasts.
+          </p>
+        </header>
+
+        <div className="platform-tabs">
+          {[
+            { k: 'list' as const, icon: '☰', l: 'List' },
+            { k: 'map' as const, icon: '⊙', l: 'Map' },
+          ].map((t) => (
+            <button
+              key={t.k}
+              onClick={() => setTab(t.k)}
+              className={`platform-tab ${tab === t.k ? 'platform-tab-active' : ''}`}
+            >
+              <span>{t.icon}</span> {t.l}
+            </button>
+          ))}
+        </div>
+
+        {tab === 'list' && <Legend />}
+
+        {tab === 'list' ? (
+          <ListView area={area} onStationSelect={handleSiteSelectFromList} />
+        ) : (
+          <div className="platform-map-layout">
+            <div
+              className="platform-map-wrapper"
+              style={{ flex: selectedSite ? '1 1 55%' : '1 1 100%' }}
+            >
+              {!selectedSite && (
+                <div className="platform-map-prompt">
+                  Tap a site on the map to see details
+                </div>
+              )}
+              <Map
+                stations={stations}
+                selectedStation={selectedStation}
+                onStationSelect={handleStationSelect}
+                theme="dark"
               />
             </div>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Content - Map on Left, Insights on Right */}
-      <main className="h-[calc(100vh-5rem)] flex">
-        {/* Left Side: Map */}
-        <div className="flex-1 p-4">
-          <div className="h-full bg-white rounded-xl shadow-sm overflow-hidden">
-            <Map
-              stations={stations}
-              selectedStation={selectedStation}
-              onStationSelect={handleStationSelect}
-              viewMode={viewMode}
-              forecastDays={forecastDays}
-              onViewModeChange={setViewMode}
-              onForecastDaysChange={setForecastDays}
-            />
-          </div>
-        </div>
-
-        {/* Right Side: Insights Column */}
-        <div className="w-96 p-4">
-          <div className="h-full">
-            <Insights
-              selectedStation={selectedStation}
-              prediction={prediction}
-              envData={envData}
-              stations={stations}
-              onStationSelect={handleStationSelect}
-            />
-          </div>
-        </div>
-      </main>
-
-      {/* Footer */}
-      <footer className="border-t border-gray-200 bg-white">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-gray-500">
-              Data source: BeachWatch Program | Fecal Coliform measurements in CFU/100mL
-            </p>
-            {/* Legend */}
-            <div className="flex items-center gap-4 text-sm">
-              <div className="flex items-center gap-2">
-                <div className="w-4 h-4 rounded-full bg-[#10b981]"></div>
-                <span className="text-gray-700">Safe (&lt;70 CFU/100mL)</span>
+            {selectedSite && (
+              <div className="platform-map-panel">
+                <div className="platform-map-panel-inner">
+                  <div className="platform-map-panel-header">
+                    <div className="platform-map-panel-area">{selectedSite.area}</div>
+                    <div className="platform-map-panel-name">{selectedSite.name}</div>
+                    <div className="platform-map-panel-meta">
+                      {selectedSite.address} · {selectedSite.tested}
+                    </div>
+                  </div>
+                  <SiteDetail
+                    site={selectedSite}
+                    onClose={() => setSelectedStation(null)}
+                  />
+                </div>
               </div>
-              <div className="flex items-center gap-2">
-                <div className="w-4 h-4 rounded-full bg-[#f59e0b]"></div>
-                <span className="text-gray-700">Poor (70-104 CFU/100mL)</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-4 h-4 rounded-full bg-[#ef4444]"></div>
-                <span className="text-gray-700">Unsafe (&gt;104 CFU/100mL)</span>
-              </div>
-            </div>
+            )}
           </div>
-        </div>
-      </footer>
+        )}
+
+      </div>
     </div>
   );
 }
