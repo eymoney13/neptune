@@ -56,14 +56,17 @@ async def get_all_environmental_data(
             logger.error(f"Weather data error: {weather_data}")
             weather_data = {"rainfall_24h": 0.0, "temperature": 20.0, "wind_speed": 8.0}
         
-        # Aggregate into predictor format
+        water_temp = temp_data.get("water_temperature", weather_data.get("temperature", 18.0))
+        air_temp = weather_data.get("air_temperature", weather_data.get("temperature", water_temp))
+
         predictors = {
             "rainfall_24h": weather_data.get("rainfall_24h", 0.0),
             "precipitation_48h": weather_data.get("precipitation_48h", weather_data.get("rainfall_48h", 0.0)),
             "wave_height": wave_data.get("wave_height", 1.2),
             "wave_period": wave_data.get("wave_period", 8.0),
             "tide_level": tide_data.get("tide_level", 0.0),
-            "temperature": temp_data.get("water_temperature", weather_data.get("temperature", 18.0)),
+            "temperature": water_temp,
+            "air_temperature": air_temp,
             "wind_speed": weather_data.get("wind_speed", 8.0),
             "wind_direction": weather_data.get("wind_direction", 270.0),
         }

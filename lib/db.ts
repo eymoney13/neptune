@@ -4,6 +4,7 @@
 
 import { Client } from 'pg';
 import { Readable } from 'stream';
+import type { PredictionHistoryByStation } from './types';
 
 /**
  * Get Postgres client from environment variables
@@ -327,4 +328,143 @@ export async function getStationsFromDb(): Promise<StationRow[] | null> {
   } finally {
     await client.end();
   }
+}
+
+/** Calendar date in America/Los_Angeles (YYYY-MM-DD) */
+export function getPacificDateString(d: Date = new Date()): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Los_Angeles',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(d);
+}
+
+export interface DailyPredictionSnapshotRow {
+  station_code: string;
+  snapshot_date_pt: string;
+  predicted_mpn: number;
+  ci_low: number | null;
+  ci_high: number | null;
+  risk_level: string | null;
+}
+
+const DAILY_PREDICTIONS_TABLE = 'daily_prediction_snapshots';
+
+export async function ensureDailyPredictionsTable(client: Client): Promise<void> {
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS ${DAILY_PREDICTIONS_TABLE} (
+      id SERIAL PRIMARY KEY,
+      station_code TEXT NOT NULL,
+      station_name TEXT,
+      snapshot_date_pt DATE NOT NULL,
+      run_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      predicted_mpn DOUBLE PRECISION NOT NULL,
+      ci_low DOUBLE PRECISION,
+      ci_high DOUBLE PRECISION,
+      risk_level TEXT,
+      antecedent_fib DOUBLE PRECISION,
+      model_file TEXT,
+      UNIQUE (station_code, snapshot_date_pt)
+    )
+  `);
+  await client.query(
+    `CREATE INDEX IF NOT EXISTS idx_daily_pred_station_date ON ${DAILY_PREDICTIONS_TABLE} (station_code, snapshot_date_pt DESC)`
+  );
+}
+
+export async function upsertDailyPredictionSnapshot(
+  client: Client,
+  row: {
+    station_code: string;
+    station_name: string;
+    snapshot_date_pt: string;
+    predicted_mpn: number;
+    ci_low?: number | null;
+    ci_high?: number | null;
+    risk_level?: string | null;
+    antecedent_fib?: number | null;
+    model_file?: string | null;
+  }
+): Promise<void> {
+  await ensureDailyPredictionsTable(client);
+  await client.query(
+    `INSERT INTO ${DAILY_PREDICTIONS_TABLE} (
+      station_code, station_name, snapshot_date_pt, run_at,
+      predicted_mpn, ci_low, ci_high, risk_level, antecedent_fib, model_file
+    ) VALUES ($1, $2, $3::date, NOW(), $4, $5, $6, $7, $8, $9)
+    ON CONFLICT (station_code, snapshot_date_pt) DO UPDATE SET
+      station_name = EXCLUDED.station_name,
+      run_at = EXCLUDED.run_at,
+      predicted_mpn = EXCLUDED.predicted_mpn,
+      ci_low = EXCLUDED.ci_low,
+      ci_high = EXCLUDED.ci_high,
+      risk_level = EXCLUDED.risk_level,
+      antecedent_fib = EXCLUDED.antecedent_fib,
+      model_file = EXCLUDED.model_file`,
+    [
+      row.station_code,
+      row.station_name,
+      row.snapshot_date_pt,
+      row.predicted_mpn,
+      row.ci_low ?? null,
+      row.ci_high ?? null,
+      row.risk_level ?? null,
+      row.antecedent_fib ?? null,
+      row.model_file ?? null,
+    ]
+  );
+}
+
+/**
+ * Recent daily snapshots for all stations (Pacific calendar dates).
+ */
+export async function getDailyPredictionsRecent(
+  lookbackDays: number
+): Promise<DailyPredictionSnapshotRow[]> {
+  const connectionString =
+    process.env.DATABASE_URL ||
+    process.env.POSTGRES_URL ||
+    process.env.SUPABASE_DB_URL;
+  if (!connectionString) return [];
+
+  const client = getDbClient();
+  try {
+    await client.connect();
+    await ensureDailyPredictionsTable(client);
+    const res = await client.query(
+      `SELECT station_code,
+              snapshot_date_pt::text AS snapshot_date_pt,
+              predicted_mpn,
+              ci_low,
+              ci_high,
+              risk_level
+       FROM ${DAILY_PREDICTIONS_TABLE}
+       WHERE snapshot_date_pt >= (timezone('America/Los_Angeles', now()))::date - ($1::int)
+       ORDER BY station_code ASC, snapshot_date_pt DESC`,
+      [Math.max(1, Math.min(lookbackDays, 365))]
+    );
+    return (res.rows || []) as DailyPredictionSnapshotRow[];
+  } catch {
+    return [];
+  } finally {
+    await client.end();
+  }
+}
+
+export function groupPredictionHistoryRows(
+  rows: DailyPredictionSnapshotRow[]
+): PredictionHistoryByStation {
+  const out: PredictionHistoryByStation = {};
+  for (const r of rows) {
+    if (!out[r.station_code]) out[r.station_code] = [];
+    out[r.station_code].push({
+      date: r.snapshot_date_pt,
+      mpn: Number(r.predicted_mpn),
+      ciLow: r.ci_low != null ? Number(r.ci_low) : null,
+      ciHigh: r.ci_high != null ? Number(r.ci_high) : null,
+      riskLevel: r.risk_level,
+    });
+  }
+  return out;
 }

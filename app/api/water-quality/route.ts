@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getStationsFromDb } from "@/lib/db";
+import { recordIsEnterococcus } from "@/lib/water-quality-enterococcus";
 
 const RESOURCE_2020_PRESENT = "15a63495-8d9f-4a49-b43a-3092ef3106b9";
 const CKAN_BASE = "https://data.ca.gov/api/3/action";
+
+// Station filter: only fetch these stations. Set to null to fetch all.
+// To restore all California beaches, set STATION_FILTER = null
+const STATION_FILTER = "Hermosa Beach";
 
 // Mark route as dynamic
 export const dynamic = 'force-dynamic';
@@ -11,6 +16,9 @@ export const dynamic = 'force-dynamic';
 // In production, consider using Redis or similar for persistent caching
 let cachedDeduplicatedRecords: any[] | null = null;
 let cacheTimestamp: number = 0;
+/** Bump when dedupe/filter logic changes so in-memory cache is not reused across deploys. */
+let cachedDataVersion: number = 0;
+const CACHE_DATA_VERSION = 2; // 2 = Enterococcus-only latest per station
 const CACHE_TTL = 15 * 60 * 1000; // 15 minutes
 
 async function ckan(action: string, params: Record<string, string>) {
@@ -113,10 +121,15 @@ async function fetchRecordsFallback(
     }
   }
   
-  console.log(`Fetched ${allRecords.length} total records, filtering...`);
-  
-  // Filter valid records
-  const validRecords = allRecords.filter((record: any) => {
+  console.log(`Fetched ${allRecords.length} total raw records, filtering...`);
+
+  const enterococcusRecords = allRecords.filter(recordIsEnterococcus);
+  console.log(
+    `Enterococcus-only: ${enterococcusRecords.length} rows (dropped ${allRecords.length - enterococcusRecords.length} non-Enterococcus)`
+  );
+
+  // Filter valid records (coordinates)
+  const validRecords = enterococcusRecords.filter((record: any) => {
     const lat = record[latField];
     const lon = record[lonField];
     
@@ -140,11 +153,13 @@ async function fetchRecordsFallback(
     return true;
   });
   
-  console.log(`Found ${validRecords.length} valid records with coordinates (from ${allRecords.length} total)`);
-  
+  console.log(
+    `Found ${validRecords.length} valid Enterococcus records with coordinates (from ${enterococcusRecords.length} Enterococcus rows)`
+  );
+
   // Debug: Show sample of invalid records if we have no valid ones
-  if (validRecords.length === 0 && allRecords.length > 0) {
-    const sample = allRecords[0];
+  if (validRecords.length === 0 && enterococcusRecords.length > 0) {
+    const sample = enterococcusRecords[0];
     console.log(`Sample record fields:`, Object.keys(sample).slice(0, 10));
     console.log(`Sample lat/lon values:`, {
       latField,
@@ -235,7 +250,11 @@ export async function GET(req: NextRequest) {
     let resultField: string | null = 'Result';
     let unitField: string | null = 'Unit';
 
-    if (cachedDeduplicatedRecords && (now - cacheTimestamp) < CACHE_TTL) {
+    if (
+      cachedDeduplicatedRecords &&
+      cachedDataVersion === CACHE_DATA_VERSION &&
+      now - cacheTimestamp < CACHE_TTL
+    ) {
       console.log(`Using cached deduplicated records (${cachedDeduplicatedRecords.length} stations)`);
       allUniqueRecords = cachedDeduplicatedRecords;
     } else {
@@ -248,6 +267,7 @@ export async function GET(req: NextRequest) {
       if (dbRecords && dbRecords.length > 0) {
         console.log(`Using ${dbRecords.length} stations from database`);
         cachedDeduplicatedRecords = dbRecords;
+        cachedDataVersion = CACHE_DATA_VERSION;
         cacheTimestamp = now;
         allUniqueRecords = dbRecords;
       } else {
@@ -274,13 +294,24 @@ export async function GET(req: NextRequest) {
       
       // Cache the deduplicated results
       cachedDeduplicatedRecords = records;
+      cachedDataVersion = CACHE_DATA_VERSION;
       cacheTimestamp = now;
       allUniqueRecords = records;
       }
     }
+    // Apply station filter if set
+    if (STATION_FILTER) {
+      const filterLower = STATION_FILTER.toLowerCase();
+      allUniqueRecords = allUniqueRecords.filter((r: any) => {
+        const name = String(r[nameField] ?? r.StationName ?? r['StationName'] ?? '');
+        return name.toLowerCase().includes(filterLower);
+      });
+      console.log(`Station filter "${STATION_FILTER}": ${allUniqueRecords.length} stations match`);
+    }
+
     const paginatedRecords = limit > 0 
       ? allUniqueRecords.slice(offset, offset + limit)
-      : allUniqueRecords.slice(offset); // If limit is 0, return all from offset
+      : allUniqueRecords.slice(offset);
     
     console.log(`Returning ${paginatedRecords.length} stations (offset=${offset}, limit=${limit}, total available: ${allUniqueRecords.length})`);
 

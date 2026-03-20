@@ -1,7 +1,7 @@
-"""CIMIS API client for weather data (rainfall, air temperature, wind)"""
+"""Weather data from Open-Meteo (replaces CIMIS placeholder)"""
 import httpx
 from typing import Dict, Optional
-from datetime import datetime, timedelta
+from datetime import datetime
 import logging
 
 logger = logging.getLogger(__name__)
@@ -13,96 +13,68 @@ async def get_weather_data(
     longitude: float = 0
 ) -> Dict[str, float]:
     """
-    Get weather data from CIMIS (California Irrigation Management Information System).
-    
-    Args:
-        station_id: CIMIS station ID (if available)
-        latitude: Station latitude
-        longitude: Station longitude
-    
-    Returns:
-        Dictionary with weather data (rainfall, temperature, wind)
+    Get current weather (precipitation, temp, wind) from Open-Meteo.
+    Free, no API key required.
     """
     try:
-        # CIMIS API typically requires authentication
-        # For now, return estimated values that vary by location
-        # In production, would integrate with actual CIMIS API
-        
-        # Estimate based on location (vary by latitude and longitude)
-        # Rainfall: varies by location (coastal areas typically get less)
-        # Use longitude to simulate coastal vs inland differences
-        coastal_factor = abs(longitude + 118.0) / 2.0  # Distance from ~LA longitude
-        rainfall_24h = max(0.0, (coastal_factor * 0.1) % 2.0)  # Vary 0-2mm
-        rainfall_48h = rainfall_24h * 1.5
-        
-        # Temperature: varies by latitude (south = warmer)
-        base_temp = 20.0
-        temp_variation = (latitude - 34.0) * -0.5  # Cooler as you go north
-        air_temperature = base_temp + temp_variation
-        
-        # Wind speed: varies by location (coastal areas typically windier)
-        base_wind = 8.0
-        wind_variation = (abs(longitude + 118.0) / 5.0) % 4.0  # Vary 0-4 m/s
-        wind_speed = base_wind + wind_variation
-        
-        # Wind direction: estimate based on location and time
-        # California coast typically has onshore winds (from west, ~270°) during day
-        # Vary direction slightly by location to make it more realistic
-        # 270° = west (onshore), 90° = east (offshore)
-        hour = datetime.utcnow().hour
-        # More onshore during day (6am-6pm), more variable at night
-        if 6 <= hour < 18:
-            # Daytime: predominantly onshore (west), vary 250-290°
-            base_direction = 270.0
-            direction_variation = (abs(latitude - 34.0) * 2.0) % 40.0 - 20.0
-        else:
-            # Nighttime: more variable, can be offshore
-            base_direction = 270.0 + (abs(longitude + 118.0) * 0.5) % 180.0 - 90.0
-            direction_variation = 0
-        wind_direction = (base_direction + direction_variation) % 360.0
-        
-        logger.info(f"Using location-based estimated weather data for lat={latitude}, lon={longitude}")
-        
+        url = "https://api.open-meteo.com/v1/forecast"
+        params = {
+            "latitude": round(latitude, 4),
+            "longitude": round(longitude, 4),
+            "current": "wind_direction_10m",
+            "daily": "precipitation_sum,temperature_2m_mean,wind_speed_10m_max",
+            "past_days": 2,
+            "timezone": "America/Los_Angeles",
+        }
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(url, params=params)
+            response.raise_for_status()
+            data = response.json()
+
+        current = data.get("current", {})
+        daily = data.get("daily", {})
+        precip_vals = daily.get("precipitation_sum", [])
+        temp_vals = daily.get("temperature_2m_mean", [])
+        wind_vals = daily.get("wind_speed_10m_max", [])
+
+        rainfall_24h = precip_vals[-1] if precip_vals else 0.0
+        rainfall_48h = sum(precip_vals[-2:]) if len(precip_vals) >= 2 else rainfall_24h
+        air_temp = temp_vals[-1] if temp_vals else 18.0
+        wind_speed = wind_vals[-1] if wind_vals else 8.0
+        wind_dir = current.get("wind_direction_10m", 270.0)
+
+        logger.info(f"Open-Meteo weather: rain24={rainfall_24h}mm, temp={air_temp}°C, wind_max={wind_speed}m/s")
+
         return {
-            "rainfall_24h": rainfall_24h,
-            "rainfall_48h": rainfall_48h,
-            "precipitation_48h": rainfall_48h,
-            "air_temperature": air_temperature,
-            "temperature": air_temperature,  # Alias for compatibility
-            "wind_speed": wind_speed,
-            "wind_direction": wind_direction,  # Degrees (0-360, 0=North, 90=East, 180=South, 270=West)
+            "rainfall_24h": float(rainfall_24h or 0),
+            "rainfall_48h": float(rainfall_48h or 0),
+            "precipitation_48h": float(rainfall_48h or 0),
+            "air_temperature": float(air_temp),
+            "temperature": float(air_temp),
+            "wind_speed": float(wind_speed or 8.0),
+            "wind_direction": float(wind_dir or 270.0),
             "timestamp": datetime.utcnow().isoformat(),
             "unit": "metric",
-            "source": "estimated",
-            "note": "Location-based estimated values - CIMIS API integration needed"
+            "source": "open-meteo",
         }
-        
+
     except Exception as e:
-        logger.error(f"Error fetching CIMIS weather data: {str(e)}")
-        # Use location-based fallback estimates
-        coastal_factor = abs(longitude + 118.0) / 2.0 if longitude else 0
-        rainfall_24h = max(0.0, (coastal_factor * 0.1) % 2.0)
-        temp_variation = (latitude - 34.0) * -0.5 if latitude else 0
-        wind_variation = (abs(longitude + 118.0) / 5.0) % 4.0 if longitude else 0
-        
-        # Estimate wind direction for fallback
-        hour = datetime.utcnow().hour
-        if 6 <= hour < 18:
-            wind_direction = 270.0 + (abs(latitude - 34.0) * 2.0) % 40.0 - 20.0 if latitude else 270.0
-        else:
-            wind_direction = 270.0 + (abs(longitude + 118.0) * 0.5) % 180.0 - 90.0 if longitude else 270.0
-        wind_direction = wind_direction % 360.0
-        
-        return {
-            "rainfall_24h": rainfall_24h,
-            "rainfall_48h": rainfall_24h * 1.5,
-            "precipitation_48h": rainfall_24h * 1.5,
-            "air_temperature": 20.0 + temp_variation,
-            "temperature": 20.0 + temp_variation,
-            "wind_speed": 8.0 + wind_variation,
-            "wind_direction": wind_direction,
-            "timestamp": datetime.utcnow().isoformat(),
-            "unit": "metric",
-            "source": "estimated",
-            "error": str(e)
-        }
+        logger.warning(f"Open-Meteo weather error, using estimate: {e}")
+
+    coastal_factor = abs(longitude + 118.0) / 2.0 if longitude else 0
+    rainfall_24h = max(0.0, (coastal_factor * 0.1) % 2.0)
+    temp_var = (latitude - 34.0) * -0.5 if latitude else 0
+    wind_var = (abs(longitude + 118.0) / 5.0) % 4.0 if longitude else 0
+
+    return {
+        "rainfall_24h": rainfall_24h,
+        "rainfall_48h": rainfall_24h * 1.5,
+        "precipitation_48h": rainfall_24h * 1.5,
+        "air_temperature": 20.0 + temp_var,
+        "temperature": 20.0 + temp_var,
+        "wind_speed": 8.0 + wind_var,
+        "wind_direction": 270.0,
+        "timestamp": datetime.utcnow().isoformat(),
+        "unit": "metric",
+        "source": "estimated",
+    }

@@ -12,6 +12,7 @@ config({ path: '.env.local' });
 config({ path: '.env' });
 
 import { getDbClient, ensureStationsTable, upsertStations } from '../lib/db';
+import { recordIsEnterococcus } from '../lib/water-quality-enterococcus';
 
 const RESOURCE_ID = '15a63495-8d9f-4a49-b43a-3092ef3106b9';
 const CKAN_BASE = 'https://data.ca.gov/api/3/action';
@@ -82,7 +83,11 @@ async function main() {
   }
 
   console.log(`Fetched ${allRecords.length} total records, filtering...`);
-  const valid = allRecords.filter((r: any) => {
+  const entOnly = allRecords.filter(recordIsEnterococcus);
+  console.log(
+    `  Enterococcus-only: ${entOnly.length} rows (dropped ${allRecords.length - entOnly.length})`
+  );
+  const valid = entOnly.filter((r: any) => {
     const lat = parseFloat(String(r[latField] ?? ''));
     const lon = parseFloat(String(r[lonField] ?? ''));
     if (isNaN(lat) || isNaN(lon)) return false;

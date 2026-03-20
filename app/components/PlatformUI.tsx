@@ -1,11 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   TIERS,
-  getTier,
-  getColor,
-  cfuToScore,
+  getTierFromMpn,
+  getColorFromMpn,
   type SiteData,
   type AreaData,
 } from '@/lib/platform-utils';
@@ -16,30 +15,31 @@ const getTrendLabel = (t: string) =>
   t === 'improving' ? 'Improving' : t === 'declining' ? 'Declining' : 'Stable';
 
 const areaStats = (area: AreaData) => {
-  const scores = area.sites.map((s) => s.score);
+  const mpns = area.sites.map((s) => s.score);
+  const avgMpn = Math.round(mpns.reduce((a, b) => a + b, 0) / mpns.length);
   return {
-    min: Math.min(...scores),
-    max: Math.max(...scores),
-    avg: Math.round(scores.reduce((a, b) => a + b, 0) / scores.length),
-    issues: area.sites.filter((s) => s.score < 60).length,
-    total: scores.length,
+    minMpn: Math.min(...mpns),
+    maxMpn: Math.max(...mpns),
+    avgMpn,
+    issues: area.sites.filter((s) => s.score > 103).length,
+    total: mpns.length,
   };
 };
 
 const getFactors = (site: SiteData) => [
   {
     label: 'Rainfall (48h)',
-    value: site.rainfall48h === 0 ? 95 : site.rainfall48h <= 0.1 ? 70 : site.rainfall48h <= 0.3 ? 40 : 20,
+    mpn: site.rainfall48h === 0 ? 0 : site.rainfall48h <= 0.1 ? 30 : site.rainfall48h <= 0.3 ? 80 : 150,
     detail: site.rainfall48h === 0 ? 'None' : `${site.rainfall48h}mm`,
   },
   {
     label: 'Runoff Proximity',
-    value: site.drainProximity === 'none' ? 95 : site.drainProximity === 'nearby' ? 65 : 30,
+    mpn: site.drainProximity === 'none' ? 0 : site.drainProximity === 'nearby' ? 60 : 120,
     detail: site.drainProximity === 'none' ? 'No outlets nearby' : site.drainProximity === 'nearby' ? 'Storm drain nearby' : `Near ${site.drainProximity}`,
   },
   {
     label: 'Tide Phase',
-    value: site.tidePhase === 'high' ? 90 : site.tidePhase === 'mid-rising' ? 80 : 50,
+    mpn: site.tidePhase === 'high' ? 5 : site.tidePhase === 'mid-rising' ? 20 : 60,
     detail: site.tidePhase.replace('-', ' '),
   },
 ];
@@ -56,42 +56,18 @@ export function ScoreRing({
 }) {
   const r = (size - stroke) / 2;
   const c = 2 * Math.PI * r;
-  const color = getColor(score);
+  const tier = getTierFromMpn(score);
+  const color = tier.color;
+  const frac = Math.min(1, score / 200);
   return (
     <div style={{ position: 'relative', width: size, height: size, flexShrink: 0 }}>
       <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
-        <circle
-          cx={size / 2}
-          cy={size / 2}
-          r={r}
-          fill="none"
-          stroke="rgba(255,255,255,0.06)"
-          strokeWidth={stroke}
-        />
-        <circle
-          cx={size / 2}
-          cy={size / 2}
-          r={r}
-          fill="none"
-          stroke={color}
-          strokeWidth={stroke}
-          strokeDasharray={c}
-          strokeDashoffset={c - (score / 100) * c}
-          strokeLinecap="round"
-          style={{ transition: 'stroke-dashoffset 0.8s ease' }}
-        />
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth={stroke} />
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={color} strokeWidth={stroke} strokeDasharray={c} strokeDashoffset={c - frac * c} strokeLinecap="round" style={{ transition: 'stroke-dashoffset 0.8s ease' }} />
       </svg>
-      <div
-        style={{
-          position: 'absolute',
-          inset: 0,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        <span style={{ fontSize: size * 0.32, fontWeight: 700, color, fontFamily: 'var(--f)' }}>
-          {score}
+      <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <span style={{ fontSize: size * 0.22, fontWeight: 700, color, fontFamily: 'var(--f)', textAlign: 'center', lineHeight: 1.1 }}>
+          {tier.label}
         </span>
       </div>
     </div>
@@ -116,7 +92,7 @@ function Spark({
   const pts = all.map(
     (v, i) => `${(i / (all.length - 1)) * w},${h - ((v - mn) / rng) * (h - 6) - 3}`
   );
-  const color = getColor(data[data.length - 1] ?? current);
+  const color = getColorFromMpn(data[data.length - 1] ?? current);
   const uid = `sp-${current}-${data.join('')}`;
   return (
     <svg width={w} height={h} style={{ display: 'block' }}>
@@ -171,7 +147,7 @@ function ScoreRange({ min, max, avg }: { min: number; max: number; avg: number }
             left: `${min}%`,
             right: `${100 - max}%`,
             height: '100%',
-            background: `linear-gradient(90deg, ${getColor(min)}, ${getColor(max)})`,
+            background: `linear-gradient(90deg, ${getColorFromMpn(min)}, ${getColorFromMpn(max)})`,
             borderRadius: 3,
             opacity: 0.65,
           }}
@@ -184,16 +160,136 @@ function ScoreRange({ min, max, avg }: { min: number; max: number; avg: number }
             width: 10,
             height: 10,
             borderRadius: '50%',
-            background: getColor(avg),
+            background: getColorFromMpn(avg),
             border: '2px solid #1a1e2e',
             transform: 'translateX(-5px)',
           }}
         />
       </div>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
-        <span style={{ fontSize: 9, color: getColor(min) }}>{min}</span>
+        <span style={{ fontSize: 9, color: getColorFromMpn(min) }}>{min}</span>
         <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.25)' }}>avg {avg}</span>
-        <span style={{ fontSize: 9, color: getColor(max) }}>{max}</span>
+        <span style={{ fontSize: 9, color: getColorFromMpn(max) }}>{max}</span>
+      </div>
+    </div>
+  );
+}
+
+// ── HISTORICAL TEST RESULTS ──
+interface HistoryRecord {
+  date: string;
+  result: number;
+  qualCode: string;
+  geoMean30: number;
+}
+
+function HistoricalResults({ stationCode }: { stationCode: string }) {
+  const [records, setRecords] = useState<HistoryRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setRecords([]);
+    fetch(`/api/history?code=${encodeURIComponent(stationCode)}`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (!cancelled) setRecords(d.records || []);
+      })
+      .catch(() => {
+        if (!cancelled) setRecords([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [stationCode]);
+
+  const fmtDate = (iso: string) => {
+    const d = new Date(iso + 'T00:00:00');
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  };
+
+  if (loading) {
+    return (
+      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.3)', fontSize: 11 }}>
+        Loading history…
+      </div>
+    );
+  }
+
+  if (records.length === 0) {
+    return (
+      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.25)', fontSize: 11 }}>
+        No historical data
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+      <div
+        style={{
+          fontSize: 10,
+          color: 'rgba(255,255,255,0.3)',
+          textTransform: 'uppercase',
+          letterSpacing: '0.08em',
+          fontWeight: 600,
+          marginBottom: 6,
+        }}
+      >
+        Past Test Results
+      </div>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'auto auto auto',
+          gap: '3px 4px',
+          fontSize: 10,
+          color: 'rgba(255,255,255,0.35)',
+          fontWeight: 600,
+          marginBottom: 4,
+          width: '100%',
+          justifyItems: 'end',
+        }}
+      >
+        <span>Date</span>
+        <span>MPN</span>
+        <span>30d Avg</span>
+      </div>
+      <div
+        style={{
+          maxHeight: 150,
+          overflowY: 'auto',
+          overflowX: 'hidden',
+          width: '100%',
+        }}
+      >
+        {records.slice(0, 20).map((r, i) => {
+          const tierColor = getColorFromMpn(r.result);
+          return (
+            <div
+              key={i}
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'auto auto auto',
+                gap: '0 4px',
+                padding: '3px 0',
+                borderBottom: '1px solid rgba(255,255,255,0.03)',
+                fontSize: 11,
+                justifyItems: 'end',
+              }}
+            >
+              <span style={{ color: 'rgba(255,255,255,0.45)' }}>{fmtDate(r.date)}</span>
+              <span style={{ color: tierColor, fontWeight: 600 }}>
+                {r.result}
+              </span>
+              <span style={{ color: r.geoMean30 >= 35 ? '#FF5733' : '#00D68F' }}>
+                {r.geoMean30.toFixed(1)}
+              </span>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -201,8 +297,6 @@ function ScoreRange({ min, max, avg }: { min: number; max: number; avg: number }
 
 function FibHoverInfo({ fib, dotColor }: { fib: number; dotColor: string }) {
   const [show, setShow] = useState(false);
-  const score = cfuToScore(fib);
-  const tier = getTier(score);
   return (
     <div
       style={{
@@ -236,7 +330,7 @@ function FibHoverInfo({ fib, dotColor }: { fib: number; dotColor: string }) {
           marginTop: 2,
         }}
       >
-        CFU/104mL
+        MPN/100mL
       </span>
       {show && (
         <div
@@ -255,7 +349,7 @@ function FibHoverInfo({ fib, dotColor }: { fib: number; dotColor: string }) {
           }}
         >
           <div style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>
-            {fib} CFU/104mL
+            {fib} MPN/100mL
           </div>
         </div>
       )}
@@ -273,17 +367,11 @@ function FibGauge({ fib }: { fib: number }) {
   const startAngleDeg = 135;
   const maxFib = 400;
 
-  // 5 zones matching the Safety Score Guide tiers (mapped by CFU thresholds)
-  // CFU 0–10 → Excellent (#00D68F), 10–35 → Good (#00D68F),
-  // 35–70 → Fair (#FFB800), 70–104 → Caution (#FF8C00),
-  // 104–200 → Poor (#FF5733), 200–400 → Unsafe (#FF3B5C)
+  // 3 zones: Good (0–35 MPN), Caution (36–103 MPN), Poor (≥104 MPN)
   const zones = [
-    { from: 0, to: 10, c1: '#00D68F', c2: '#00D68F' },   // Excellent
-    { from: 10, to: 35, c1: '#00D68F', c2: '#00D68F' },   // Good
-    { from: 35, to: 70, c1: '#FFB800', c2: '#FFB800' },   // Fair
-    { from: 70, to: 103, c1: '#FF8C00', c2: '#FF8C00' },  // Caution
-    { from: 103, to: 200, c1: '#FF5733', c2: '#FF5733' }, // Poor
-    { from: 200, to: maxFib, c1: '#FF3B5C', c2: '#FF3B5C' }, // Unsafe
+    { from: 0, to: 35, c1: '#00D68F', c2: '#00D68F' },    // Good
+    { from: 35, to: 103, c1: '#FFB800', c2: '#FFB800' },   // Caution
+    { from: 103, to: maxFib, c1: '#FF5733', c2: '#FF5733' }, // Poor
   ];
 
   // 104 threshold at 3/4 of the arc
@@ -393,11 +481,11 @@ function FibGauge({ fib }: { fib: number }) {
             }}
           />
           <span style={{ fontSize: 13, fontWeight: 700, color: dotColor }}>
-            {getTier(cfuToScore(fib)).label}
+            {getTierFromMpn(fib).label}
           </span>
         </div>
         <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>
-          {getTier(cfuToScore(fib)).desc}
+          {getTierFromMpn(fib).desc}
         </span>
       </div>
     </div>
@@ -420,32 +508,29 @@ function FactorBreakdown({ site }: { site: SiteData }) {
       >
         What&apos;s behind this score
       </div>
-      {factors.map((f, i) => (
-        <div key={i} style={{ marginBottom: i < factors.length - 1 ? 8 : 0 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
-            <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)' }}>{f.label}</span>
-            <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)' }}>{f.detail}</span>
+      {factors.map((f, i) => {
+        const pct = Math.min(100, (f.mpn / 200) * 100);
+        return (
+          <div key={i} style={{ marginBottom: i < factors.length - 1 ? 8 : 0 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
+              <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)' }}>{f.label}</span>
+              <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)' }}>{f.detail}</span>
+            </div>
+            <div style={{ height: 4, background: 'rgba(255,255,255,0.06)', borderRadius: 2 }}>
+              <div
+                style={{
+                  height: '100%',
+                  width: `${pct}%`,
+                  borderRadius: 2,
+                  background: getColorFromMpn(f.mpn),
+                  opacity: 0.7,
+                  transition: 'width 0.5s ease',
+                }}
+              />
+            </div>
           </div>
-          <div
-            style={{
-              height: 4,
-              background: 'rgba(255,255,255,0.06)',
-              borderRadius: 2,
-            }}
-          >
-            <div
-              style={{
-                height: '100%',
-                width: `${f.value}%`,
-                borderRadius: 2,
-                background: getColor(f.value),
-                opacity: 0.7,
-                transition: 'width 0.5s ease',
-              }}
-            />
-          </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -564,31 +649,28 @@ function InfoTooltip({ site }: { site: SiteData }) {
           >
             What&apos;s behind this score
           </div>
-          {factors.map((f, i) => (
-            <div key={i} style={{ marginBottom: i < factors.length - 1 ? 8 : 0 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
-                <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)' }}>{f.label}</span>
-                <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)' }}>{f.detail}</span>
+          {factors.map((f, i) => {
+            const pct = Math.min(100, (f.mpn / 200) * 100);
+            return (
+              <div key={i} style={{ marginBottom: i < factors.length - 1 ? 8 : 0 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
+                  <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)' }}>{f.label}</span>
+                  <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)' }}>{f.detail}</span>
+                </div>
+                <div style={{ height: 4, background: 'rgba(255,255,255,0.06)', borderRadius: 2 }}>
+                  <div
+                    style={{
+                      height: '100%',
+                      width: `${pct}%`,
+                      borderRadius: 2,
+                      background: getColorFromMpn(f.mpn),
+                      opacity: 0.7,
+                    }}
+                  />
+                </div>
               </div>
-              <div
-                style={{
-                  height: 4,
-                  background: 'rgba(255,255,255,0.06)',
-                  borderRadius: 2,
-                }}
-              >
-                <div
-                  style={{
-                    height: '100%',
-                    width: `${f.value}%`,
-                    borderRadius: 2,
-                    background: getColor(f.value),
-                    opacity: 0.7,
-                  }}
-                />
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
@@ -605,7 +687,7 @@ export function SiteDetail({
   onClose?: () => void;
   style?: React.CSSProperties;
 }) {
-  const tier = getTier(site.score);
+  const tier = getTierFromMpn(site.score);
   const color = tier.color;
   const today = new Date();
   const formatDate = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
@@ -721,6 +803,93 @@ export function SiteDetail({
 
       <div
         style={{
+          display: 'grid',
+          gridTemplateColumns: '1fr 1fr',
+          gap: 10,
+          marginBottom: 12,
+        }}
+      >
+        <div
+          style={{
+            background: 'rgba(255,255,255,0.02)',
+            border: '1px solid rgba(255,255,255,0.06)',
+            borderRadius: 12,
+            padding: '12px 14px',
+          }}
+          title="Latest Enterococcus measurement from CKAN"
+        >
+          <div
+            style={{
+              fontSize: 9,
+              color: 'rgba(255,255,255,0.32)',
+              textTransform: 'uppercase',
+              letterSpacing: '0.06em',
+              marginBottom: 6,
+            }}
+          >
+            Lab (Enterococcus)
+          </div>
+          <div
+            style={{
+              fontSize: 22,
+              fontWeight: 700,
+              color: getColorFromMpn(site.labMpn),
+              fontFamily: 'var(--f)',
+            }}
+          >
+            {site.labMpn}
+            <span style={{ fontSize: 11, fontWeight: 500, color: 'rgba(255,255,255,0.35)', marginLeft: 4 }}>
+              MPN
+            </span>
+          </div>
+        </div>
+        <div
+          style={{
+            background: 'rgba(255,255,255,0.02)',
+            border: '1px solid rgba(255,255,255,0.06)',
+            borderRadius: 12,
+            padding: '12px 14px',
+          }}
+          title="Model output stored at the daily ~6AM PT cron run for today (Pacific date)"
+        >
+          <div
+            style={{
+              fontSize: 9,
+              color: 'rgba(255,255,255,0.32)',
+              textTransform: 'uppercase',
+              letterSpacing: '0.06em',
+              marginBottom: 6,
+            }}
+          >
+            6AM snapshot (today PT)
+          </div>
+          <div
+            style={{
+              fontSize: 22,
+              fontWeight: 700,
+              color:
+                site.todaySixAmSnapshotMpn != null
+                  ? getColorFromMpn(site.todaySixAmSnapshotMpn)
+                  : 'rgba(255,255,255,0.2)',
+              fontFamily: 'var(--f)',
+            }}
+          >
+            {site.todaySixAmSnapshotMpn != null ? (
+              <>
+                {site.todaySixAmSnapshotMpn}
+                <span style={{ fontSize: 11, fontWeight: 500, color: 'rgba(255,255,255,0.35)', marginLeft: 4 }}>
+                  MPN
+                </span>
+              </>
+            ) : (
+              <span style={{ fontSize: 16 }}>—</span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div
+        style={{
           background: 'rgba(255,255,255,0.02)',
           border: '1px solid rgba(255,255,255,0.04)',
           borderRadius: 12,
@@ -742,7 +911,7 @@ export function SiteDetail({
         }}
       >
         {all.slice(0, 4).map((s, i) => {
-          const t = getTier(s);
+          const t = getTierFromMpn(s);
           return (
             <div
               key={i}
@@ -793,6 +962,59 @@ export function SiteDetail({
         })}
       </div>
 
+      {site.dailyPredictionHistory && site.dailyPredictionHistory.length > 0 && (
+        <div
+          style={{
+            background: 'rgba(255,255,255,0.02)',
+            border: '1px solid rgba(255,255,255,0.04)',
+            borderRadius: 12,
+            padding: '14px 16px',
+            marginBottom: 12,
+          }}
+        >
+          <div
+            style={{
+              fontSize: 10,
+              color: 'rgba(255,255,255,0.35)',
+              textTransform: 'uppercase',
+              letterSpacing: '0.06em',
+              marginBottom: 10,
+            }}
+          >
+            Stored predictions (6AM PT, Enterococcus model)
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 160, overflowY: 'auto' }}>
+            {site.dailyPredictionHistory.map((h) => (
+              <div
+                key={h.date}
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  fontSize: 12,
+                  color: 'rgba(255,255,255,0.75)',
+                  fontFamily: 'var(--f)',
+                }}
+              >
+                <span style={{ color: 'rgba(255,255,255,0.4)' }}>{h.date}</span>
+                <span style={{ fontWeight: 600 }}>{h.mpn.toFixed(1)} MPN</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div
+        style={{
+          background: 'rgba(255,255,255,0.02)',
+          border: '1px solid rgba(255,255,255,0.04)',
+          borderRadius: 12,
+          padding: '14px 16px',
+          marginBottom: 12,
+        }}
+      >
+        <HistoricalResults stationCode={site.stationCode} />
+      </div>
+
       <div
         style={{
           display: 'grid',
@@ -835,6 +1057,72 @@ export function SiteDetail({
   );
 }
 
+// ── LIST: Lab MPN + today's 6AM PT snapshot (recent days in tooltip) ──
+function LabAndSixAmListColumn({ site }: { site: SiteData }) {
+  const history = site.dailyPredictionHistory ?? [];
+  const historyTitle =
+    history.length > 0
+      ? `Recent 6AM PT snapshots:\n${history
+          .slice(0, 10)
+          .map((h) => `${h.date}: ${Math.round(h.mpn)} MPN`)
+          .join('\n')}`
+      : 'No stored snapshots yet. Run daily cron with DATABASE_URL + PYTHON_API_URL.';
+
+  return (
+    <div
+      style={{ width: 108, flexShrink: 0, textAlign: 'right' }}
+      title={historyTitle}
+    >
+      <div
+        style={{
+          fontSize: 8,
+          color: 'rgba(255,255,255,0.28)',
+          letterSpacing: '0.05em',
+          marginBottom: 2,
+        }}
+      >
+        LAB
+      </div>
+      <div
+        style={{
+          fontSize: 13,
+          fontWeight: 700,
+          color: getColorFromMpn(site.labMpn),
+          fontFamily: 'var(--f)',
+          lineHeight: 1.2,
+        }}
+      >
+        {site.labMpn}
+      </div>
+      <div
+        style={{
+          fontSize: 8,
+          color: 'rgba(255,255,255,0.28)',
+          letterSpacing: '0.05em',
+          marginTop: 6,
+          marginBottom: 2,
+        }}
+      >
+        6AM PT
+      </div>
+      <div
+        style={{
+          fontSize: 13,
+          fontWeight: 700,
+          color:
+            site.todaySixAmSnapshotMpn != null
+              ? getColorFromMpn(site.todaySixAmSnapshotMpn)
+              : 'rgba(255,255,255,0.18)',
+          fontFamily: 'var(--f)',
+          lineHeight: 1.2,
+        }}
+      >
+        {site.todaySixAmSnapshotMpn != null ? site.todaySixAmSnapshotMpn : '—'}
+      </div>
+    </div>
+  );
+}
+
 // ── SITE ROW ──
 function SiteRow({
   site,
@@ -846,7 +1134,7 @@ function SiteRow({
   onSelect?: (site: SiteData) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const tier = getTier(site.score);
+  const tier = getTierFromMpn(site.score);
   const color = tier.color;
 
   const toggle = () => {
@@ -920,7 +1208,7 @@ function SiteRow({
                   letterSpacing: '0.04em',
                 }}
               >
-                {site.score >= 40 ? 'advisory' : 'warning'}
+                {site.score <= 103 ? 'advisory' : 'warning'}
               </span>
             )}
           </div>
@@ -928,6 +1216,7 @@ function SiteRow({
             {site.address} · Updated {site.tested}
           </div>
         </div>
+        <LabAndSixAmListColumn site={site} />
         <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 10 }}>
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
             <Spark data={site.forecast} current={site.score} w={72} h={24} />
@@ -983,7 +1272,7 @@ function AreaCard({
   index: number;
 }) {
   const st = areaStats(area);
-  const tier = getTier(st.avg);
+  const tier = getTierFromMpn(st.avgMpn);
   const color = tier.color;
   return (
     <div
@@ -1058,7 +1347,7 @@ function AreaCard({
               </span>
             )}
             <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)' }}>
-              {getTier(st.min).label} to {getTier(st.max).label}
+              {getTierFromMpn(st.minMpn).label} to {getTierFromMpn(st.maxMpn).label}
             </span>
           </div>
         </div>
@@ -1088,7 +1377,7 @@ function AreaDetail({
   onStationSelect?: (site: SiteData) => void;
 }) {
   const st = areaStats(area);
-  const tier = getTier(st.avg);
+  const tier = getTierFromMpn(st.avgMpn);
 
   return (
     <div style={{ animation: 'slideUp 0.35s ease' }}>
@@ -1258,7 +1547,7 @@ function Legend() {
             ))}
           </div>
           <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)' }}>
-            {open ? 'Safety Score Guide' : 'What do the scores mean?'}
+            {open ? 'Water Quality Guide' : 'What do the ratings mean?'}
           </span>
         </div>
         <span
@@ -1284,48 +1573,45 @@ function Legend() {
           }}
         >
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {TIERS.map((t, i) => (
-              <div
-                key={i}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 14,
-                  padding: '8px 12px',
-                  background: `${t.color}08`,
-                  borderRadius: 10,
-                  border: `1px solid ${t.color}10`,
-                }}
-              >
+            {TIERS.map((t, i) => {
+              const range = i === 0 ? '0–35 MPN' : i === 1 ? '36–103 MPN' : '≥104 MPN';
+              return (
                 <div
+                  key={i}
                   style={{
-                    width: 12,
-                    height: 12,
-                    borderRadius: '50%',
-                    background: t.color,
-                    boxShadow: `0 0 8px ${t.color}40`,
-                    flexShrink: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 14,
+                    padding: '8px 12px',
+                    background: `${t.color}08`,
+                    borderRadius: 10,
+                    border: `1px solid ${t.color}10`,
                   }}
-                />
-                <div style={{ flex: 1 }}>
-                  <span
+                >
+                  <div
                     style={{
-                      fontSize: 14,
-                      fontWeight: 700,
-                      color: t.color,
-                      fontFamily: 'var(--f)',
+                      width: 12,
+                      height: 12,
+                      borderRadius: '50%',
+                      background: t.color,
+                      boxShadow: `0 0 8px ${t.color}40`,
+                      flexShrink: 0,
                     }}
-                  >
-                    {t.label}
-                  </span>
-                  <span
-                    style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', marginLeft: 10 }}
-                  >
-                    {t.desc}
-                  </span>
+                  />
+                  <div style={{ flex: 1 }}>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: t.color, fontFamily: 'var(--f)' }}>
+                      {t.label}
+                    </span>
+                    <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', marginLeft: 8 }}>
+                      {range}
+                    </span>
+                    <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', marginTop: 2 }}>
+                      {t.desc}
+                    </div>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
           <div
             style={{
@@ -1344,9 +1630,9 @@ function Legend() {
                 margin: 0,
               }}
             >
-              Safety Scores combine bacteria levels, recent rainfall, proximity to storm drains &
-              creeks, and tidal conditions. Scores are predicted by AI models and update
-              continuously — not just once a week.
+              Water quality ratings are based on bacteria levels (MPN — Most Probable Number per 100mL),
+              combined with recent rainfall, proximity to storm drains & creeks, and tidal conditions.
+              Predictions are generated by AI models and update continuously.
             </p>
           </div>
         </div>
@@ -1376,14 +1662,15 @@ export function ListView({
       };
     }
     if (filter === 'safe') {
-      const st = areaStats(area);
-      if (st.avg < 80) return { ...area, sites: [] };
-      return area;
+      return {
+        ...area,
+        sites: area.sites.filter((s) => s.score <= 35),
+      };
     }
     if (filter === 'issues') {
       return {
         ...area,
-        sites: area.sites.filter((s) => s.score < 60),
+        sites: area.sites.filter((s) => s.score > 103),
       };
     }
     return area;

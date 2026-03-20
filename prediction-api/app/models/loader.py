@@ -45,25 +45,64 @@ def load_model(model_path: str, model_key: str = "default") -> Optional[Any]:
         return None
 
 
-def get_model_for_station(station_code: str, models_dir: str = "models") -> Optional[Any]:
+_QUALIFIED_REGIONS = {"san_diego"}
+
+
+def _is_qualified_region(region: str, models_dir: str) -> bool:
+    """Check if a regional model exists and is qualified (better than default)."""
+    if region in _QUALIFIED_REGIONS:
+        return os.path.exists(os.path.join(models_dir, f"region_{region}.pkl"))
+    # Also check for a meta flag
+    import json
+    meta_path = os.path.join(models_dir, f"region_{region}_meta.json")
+    if os.path.exists(meta_path):
+        try:
+            with open(meta_path) as f:
+                meta = json.load(f)
+            default_meta_path = os.path.join(models_dir, "default_model_meta.json")
+            if os.path.exists(default_meta_path):
+                with open(default_meta_path) as f:
+                    default_meta = json.load(f)
+                return (meta.get("cv_r2_mean", 0) or 0) >= (default_meta.get("cv_r2_mean", 0) or 0)
+        except Exception:
+            pass
+    return False
+
+
+def get_model_for_station(
+    station_code: str,
+    models_dir: str = "models",
+    region: Optional[str] = None,
+) -> Optional[Any]:
     """
-    Get the appropriate model for a station.
-    
-    Args:
-        station_code: Station identifier
-        models_dir: Directory containing model files
-    
-    Returns:
-        Model object or None
+    Get the best available model for a station.
+    Priority: station-specific → qualified regional → default.
     """
-    # Try station-specific model first
-    station_model_path = os.path.join(models_dir, f"station_{station_code}.pkl")
-    if os.path.exists(station_model_path):
-        return load_model(station_model_path, f"station_{station_code}")
-    
-    # Fall back to default/general model
-    default_model_path = os.path.join(models_dir, "default_model.pkl")
-    return load_model(default_model_path, "default")
+    station_path = os.path.join(models_dir, f"station_{station_code}.pkl")
+    if os.path.exists(station_path):
+        return load_model(station_path, f"station_{station_code}")
+
+    if region and _is_qualified_region(region, models_dir):
+        region_path = os.path.join(models_dir, f"region_{region}.pkl")
+        return load_model(region_path, f"region_{region}")
+
+    default_path = os.path.join(models_dir, "default_model.pkl")
+    return load_model(default_path, "default")
+
+
+def get_model_path_for_station(
+    station_code: str,
+    models_dir: str = "models",
+    region: Optional[str] = None,
+) -> str:
+    station_path = os.path.join(models_dir, f"station_{station_code}.pkl")
+    if os.path.exists(station_path):
+        return station_path
+    if region and _is_qualified_region(region, models_dir):
+        region_path = os.path.join(models_dir, f"region_{region}.pkl")
+        if os.path.exists(region_path):
+            return region_path
+    return os.path.join(models_dir, "default_model.pkl")
 
 
 def clear_model_cache():

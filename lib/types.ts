@@ -47,6 +47,7 @@ export interface PredictionRequest {
   longitude: number;
   use_env_data?: boolean;
   use_mock_model?: boolean;
+  antecedent_fib?: number;
   predictors?: {
     rainfall_24h?: number;
     precipitation_48h?: number;
@@ -69,10 +70,22 @@ export interface PredictionResult {
   };
   model_info: {
     model_type: string;
+    model_file?: string;
     use_mock?: boolean;
   };
   error?: string;
 }
+
+/** One row of stored daily 6AM PT Enterococcus model snapshot (for accuracy tracking) */
+export interface DailyPredictionHistoryEntry {
+  date: string;
+  mpn: number;
+  ciLow: number | null;
+  ciHigh: number | null;
+  riskLevel: string | null;
+}
+
+export type PredictionHistoryByStation = Record<string, DailyPredictionHistoryEntry[]>;
 
 export interface EnvironmentalData {
   success: boolean;

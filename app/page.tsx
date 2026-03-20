@@ -3,7 +3,13 @@
 import { useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import Image from 'next/image';
-import { StationSummary, WaterQualityRecord, PredictionResult, EnvironmentalData } from '@/lib/types';
+import {
+  StationSummary,
+  WaterQualityRecord,
+  PredictionResult,
+  EnvironmentalData,
+  type PredictionHistoryByStation,
+} from '@/lib/types';
 import { getCachedStationSummaries, loadCSVData, getStationRecords } from '@/lib/data';
 import { transformStationsToArea, type SiteData } from '@/lib/platform-utils';
 import { ListView, Legend, SiteDetail } from './components/PlatformUI';
@@ -28,7 +34,10 @@ export default function Home() {
   const [prediction, setPrediction] = useState<PredictionResult | null>(null);
   const [envData, setEnvData] = useState<EnvironmentalData | null>(null);
   const [loadingPrediction, setLoadingPrediction] = useState(false);
+  const [forecastData, setForecastData] = useState<any>(null);
   const [tab, setTab] = useState<'list' | 'map'>('list');
+  const [predictionHistoryByStation, setPredictionHistoryByStation] =
+    useState<PredictionHistoryByStation>({});
 
   useEffect(() => {
     async function loadData() {
@@ -129,6 +138,25 @@ Original error: ${errorMessage}`);
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/predictions/history?days=21');
+        if (!res.ok || cancelled) return;
+        const data = await res.json();
+        if (!cancelled && data.byStation && typeof data.byStation === 'object') {
+          setPredictionHistoryByStation(data.byStation as PredictionHistoryByStation);
+        }
+      } catch {
+        /* optional feature */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     async function loadStationRecords() {
       if (!selectedStation) return;
 
@@ -166,17 +194,31 @@ Original error: ${errorMessage}`);
         }
 
         try {
-          const predResponse = await fetch('/api/predict', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              station_code: selectedStation.code,
-              latitude: selectedStation.latitude,
-              longitude: selectedStation.longitude,
-              use_env_data: true,
-              use_mock_model: true,
+          const [predResponse, forecastResponse] = await Promise.all([
+            fetch('/api/predict', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                station_code: selectedStation.code,
+                latitude: selectedStation.latitude,
+                longitude: selectedStation.longitude,
+                use_env_data: true,
+                use_mock_model: true,
+                antecedent_fib: selectedStation.latestResult ?? undefined,
+              }),
             }),
-          });
+            fetch('/api/forecast', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                station_code: selectedStation.code,
+                latitude: selectedStation.latitude,
+                longitude: selectedStation.longitude,
+                antecedent_fib: selectedStation.latestResult ?? undefined,
+                days: 3,
+              }),
+            }).catch(() => null),
+          ]);
 
           if (predResponse.ok) {
             const predResult = await predResponse.json();
@@ -186,9 +228,17 @@ Original error: ${errorMessage}`);
             console.error('Prediction API error:', errorData);
             setPrediction(null);
           }
+
+          if (forecastResponse?.ok) {
+            const fcData = await forecastResponse.json();
+            setForecastData(fcData);
+          } else {
+            setForecastData(null);
+          }
         } catch (err) {
           console.error('Error fetching prediction:', err);
           setPrediction(null);
+          setForecastData(null);
         }
       } catch (err) {
         console.error('Error loading prediction:', err);
@@ -209,7 +259,14 @@ Original error: ${errorMessage}`);
     if (station) setSelectedStation(station);
   };
 
-  const area = transformStationsToArea(stations, selectedStation, prediction, envData);
+  const area = transformStationsToArea(
+    stations,
+    selectedStation,
+    prediction,
+    envData,
+    forecastData,
+    predictionHistoryByStation
+  );
   const selectedSite = selectedStation
     ? area.sites.find((s) => s.stationCode === selectedStation.code)
     : null;
@@ -273,7 +330,7 @@ Original error: ${errorMessage}`);
           </div>
           <h1 className="platform-title">California Beaches</h1>
           <p className="platform-subtitle">
-            Safety scores across {area.sites.length} testing sites — predicted in real-time with
+            Water quality ratings across {area.sites.length} testing sites — predicted in real-time with
             3-day forecasts.
           </p>
         </header>
@@ -310,6 +367,7 @@ Original error: ${errorMessage}`);
               )}
               <Map
                 stations={stations}
+                sites={area.sites}
                 selectedStation={selectedStation}
                 onStationSelect={handleStationSelect}
                 theme="dark"

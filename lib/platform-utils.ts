@@ -1,34 +1,49 @@
-import type { StationSummary, PredictionResult, EnvironmentalData } from './types';
+import type {
+  StationSummary,
+  PredictionResult,
+  EnvironmentalData,
+  PredictionHistoryByStation,
+  DailyPredictionHistoryEntry,
+} from './types';
 
-// ── SCORE TIERS (95–100 Excellent, 85–94 Good, 70–84 Fair, 50–69 Caution, 30–49 Poor, 0–29 Unsafe) ──
+// ── TIERS: Good (0–35 MPN), Caution (36–103 MPN), Poor (≥104 MPN) ──
 export const TIERS = [
-  { min: 95, label: 'Excellent', desc: 'Pristine conditions', color: '#00D68F' },
-  { min: 85, label: 'Good', desc: 'Safe for all activities', color: '#00D68F' },
-  { min: 70, label: 'Fair', desc: 'Generally safe', color: '#FFB800' },
-  { min: 50, label: 'Caution', desc: 'Sensitive groups should avoid', color: '#FF8C00' },
-  { min: 30, label: 'Poor', desc: 'Swimming not recommended', color: '#FF5733' },
-  { min: 0, label: 'Unsafe', desc: 'Avoid all water contact', color: '#FF3B5C' },
+  { maxMpn: 35, label: 'Good', desc: 'Low bacteria, safe for all activities', color: '#00D68F' },
+  { maxMpn: 103, label: 'Caution', desc: 'Medium bacteria, sensitive groups should avoid', color: '#FFB800' },
+  { maxMpn: Infinity, label: 'Poor', desc: 'High bacteria, swimming not recommended', color: '#FF5733' },
 ] as const;
 
+export function getTierFromMpn(mpn: number) {
+  return TIERS.find((t) => mpn <= t.maxMpn) || TIERS[TIERS.length - 1];
+}
+
+export function getColorFromMpn(mpn: number) {
+  return getTierFromMpn(mpn).color;
+}
+
+/** @deprecated Use getTierFromMpn instead — kept for compatibility during migration */
 export function getTier(score: number) {
-  return TIERS.find((t) => score >= t.min) || TIERS[TIERS.length - 1];
+  return getTierFromMpn(score);
 }
 
+/** @deprecated Use getColorFromMpn instead */
 export function getColor(score: number) {
-  return getTier(score).color;
+  return getColorFromMpn(score);
 }
 
-/**
- * Converts CFU (fecal coliform) to a 0–100 safety score.
- * Output maps to tier ranges: 95–100 Excellent, 85–94 Good, 70–84 Fair, 50–69 Caution, 30–49 Poor, 0–29 Unsafe.
- */
+/** @deprecated Use getTierFromMpn directly — this now just returns the MPN value unchanged */
 export function cfuToScore(cfu: number): number {
-  if (cfu <= 10) return Math.round(100 - (cfu / 10) * 5); // 95–100 Excellent
-  if (cfu <= 35) return Math.round(94 - ((cfu - 10) / 25) * 10); // 85–94 Good
-  if (cfu <= 70) return Math.round(84 - ((cfu - 35) / 35) * 15); // 70–84 Fair
-  if (cfu <= 103) return Math.round(69 - ((cfu - 70) / 33) * 20); // 50–69 Caution
-  if (cfu <= 200) return Math.round(49 - ((cfu - 103) / 97) * 20); // 30–49 Poor
-  return Math.max(0, Math.round(29 - (cfu - 200) / 15)); // 0–29 Unsafe
+  return cfu;
+}
+
+/** Pacific calendar date YYYY-MM-DD (matches snapshot `date` from cron). */
+export function getPacificDateString(date: Date = new Date()): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Los_Angeles',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date);
 }
 
 // ── Site/Area types for Platform UI ──
@@ -53,6 +68,12 @@ export interface SiteData {
   area: string;
   region: string;
   stationCode: string;
+  /** Latest Enterococcus lab MPN from CKAN (always lab, not live model) */
+  labMpn: number;
+  /** Stored cron snapshot for today's Pacific date, if any */
+  todaySixAmSnapshotMpn: number | null;
+  /** Daily 6AM PT model snapshots (newest first) for accuracy tracking */
+  dailyPredictionHistory?: DailyPredictionHistoryEntry[];
 }
 
 export interface AreaData {
@@ -98,10 +119,12 @@ function formatSwell(meters: number): string {
 export function transformStationToSite(
   station: StationSummary,
   prediction?: PredictionResult | null,
-  envData?: EnvironmentalData | null
+  envData?: EnvironmentalData | null,
+  forecastData?: any,
+  dailyPredictionHistory?: PredictionHistoryByStation | null
 ): SiteData {
   const fib = prediction?.prediction?.fecal_coliform_cfu ?? station.latestResult;
-  const score = cfuToScore(fib);
+  const score = Math.round(fib);
 
   const temp = envData?.predictors?.temperature != null
     ? Math.round((envData.predictors.temperature * 9) / 5 + 32)
@@ -118,11 +141,15 @@ export function transformStationToSite(
   const tideLevel = envData?.predictors?.tide_level ?? 0;
   const tidePhase = tideLevelToPhase(tideLevel);
 
-  const [lo, hi] = prediction?.prediction?.confidence_interval ?? [fib * 0.8, fib * 1.2];
-  const f1 = Math.round(cfuToScore(lo));
-  const f2 = Math.round(cfuToScore((lo + hi) / 2));
-  const f3 = Math.round(cfuToScore(hi));
-  const forecast = [Math.min(99, f1), Math.min(99, f2), Math.min(99, f3)];
+  // Use real multi-day forecast if available, otherwise fall back to confidence interval
+  let forecast: number[];
+  const fcForecasts = forecastData?.forecasts as Array<{ day: number; prediction: { fecal_coliform_cfu: number } }> | undefined;
+  if (fcForecasts && fcForecasts.length >= 4) {
+    forecast = fcForecasts.slice(1, 4).map(f => Math.max(1, Math.round(f.prediction.fecal_coliform_cfu)));
+  } else {
+    const [lo, hi] = prediction?.prediction?.confidence_interval ?? [fib * 0.8, fib * 1.2];
+    forecast = [Math.max(0, Math.round(lo)), Math.max(0, Math.round((lo + hi) / 2)), Math.max(0, Math.round(hi))];
+  }
 
   const riskLevel = prediction?.prediction?.risk_level;
   let advisory: string | undefined;
@@ -131,6 +158,17 @@ export function transformStationToSite(
   } else if (riskLevel === 'caution') {
     advisory = 'Moderate water quality. Sensitive groups should avoid water contact.';
   }
+
+  const historyForStation =
+    dailyPredictionHistory?.[station.code] ??
+    dailyPredictionHistory?.[station.name] ??
+    [];
+
+  const todayPt = getPacificDateString();
+  const todaySnap = historyForStation.find((h) => h.date === todayPt);
+  const todaySixAmSnapshotMpn =
+    todaySnap != null ? Math.round(todaySnap.mpn) : null;
+  const labMpn = Math.round(Math.max(0, station.latestResult));
 
   return {
     id: station.code,
@@ -153,6 +191,10 @@ export function transformStationToSite(
     area: 'California Beaches',
     region: 'Statewide',
     stationCode: station.code,
+    labMpn,
+    todaySixAmSnapshotMpn,
+    dailyPredictionHistory:
+      historyForStation.length > 0 ? historyForStation : undefined,
   };
 }
 
@@ -163,11 +205,20 @@ export function transformStationsToArea(
   stations: StationSummary[],
   selectedStation: StationSummary | null,
   prediction: PredictionResult | null,
-  envData: EnvironmentalData | null
+  envData: EnvironmentalData | null,
+  forecastData?: any,
+  dailyPredictionHistory?: PredictionHistoryByStation | null
 ): AreaData {
-  const sites = stations.map((s) =>
-    transformStationToSite(s, s.code === selectedStation?.code ? prediction : null, s.code === selectedStation?.code ? envData : null)
-  );
+  const sites = stations.map((s) => {
+    const isSelected = s.code === selectedStation?.code;
+    return transformStationToSite(
+      s,
+      isSelected ? prediction : null,
+      isSelected ? envData : null,
+      isSelected ? forecastData : undefined,
+      dailyPredictionHistory ?? null
+    );
+  });
   return {
     id: 'california',
     name: 'California Beaches',

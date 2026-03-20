@@ -23,16 +23,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Add timeout and better error handling
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
-    
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
+
     try {
       const response = await fetch(`${PYTHON_API_URL}/api/predict`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           station_code: body.station_code,
           latitude: body.latitude,
@@ -40,10 +37,11 @@ export async function POST(request: NextRequest) {
           use_env_data: body.use_env_data ?? true,
           use_mock_model: body.use_mock_model ?? true,
           predictors: body.predictors,
+          antecedent_fib: body.antecedent_fib,
         }),
         signal: controller.signal,
       });
-      
+
       clearTimeout(timeoutId);
 
       if (!response.ok) {
@@ -62,9 +60,9 @@ export async function POST(request: NextRequest) {
       if (fetchError instanceof Error && fetchError.name === 'AbortError') {
         console.error('Prediction API timeout');
         return NextResponse.json(
-          { 
+          {
             error: 'Request timed out',
-            details: 'The Python API did not respond within 30 seconds'
+            details: 'The Python API did not respond within 30 seconds',
           },
           { status: 504 }
         );

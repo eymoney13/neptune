@@ -1,0 +1,866 @@
+[
+  {
+    "region": "default",
+    "features": [
+      "antecedent_fib_log10",
+      "days_since_last_sample",
+      "precipitation_mm",
+      "precipitation_48h_mm",
+      "precipitation_72h_mm",
+      "precipitation_7d_mm",
+      "log_precip_mm",
+      "log_precip_48h_mm",
+      "tide_level_m",
+      "tide_range_m",
+      "water_temp_c",
+      "air_temp_c",
+      "wind_speed_ms",
+      "wave_height_m",
+      "wave_period_s",
+      "month",
+      "day_of_year",
+      "season_sin",
+      "season_cos"
+    ],
+    "normalization_stats": {
+      "antecedent_fib_log10": {
+        "mean": 1.3834058244397394,
+        "std": 1.0347299782600672
+      },
+      "days_since_last_sample": {
+        "mean": 6.961813317697072,
+        "std": 11.07056290788552
+      },
+      "precipitation_mm": {
+        "mean": 0.24531461868288928,
+        "std": 2.39042685079238
+      },
+      "precipitation_48h_mm": {
+        "mean": 0.4892512918239455,
+        "std": 3.8476251963056076
+      },
+      "precipitation_72h_mm": {
+        "mean": 0.6360266793711292,
+        "std": 5.00191275519729
+      },
+      "precipitation_7d_mm": {
+        "mean": 0.978502583647891,
+        "std": 7.695250392611215
+      },
+      "log_precip_mm": {
+        "mean": 0.02545093923772182,
+        "std": 0.14259376219551875
+      },
+      "log_precip_48h_mm": {
+        "mean": 0.04150510944269648,
+        "std": 0.191620574994114
+      },
+      "tide_level_m": {
+        "mean": 0.8620239918886893,
+        "std": 0.06505769144965615
+      },
+      "tide_range_m": {
+        "mean": 1.1999999999999997,
+        "std": 2.220486737253418e-16
+      },
+      "water_temp_c": {
+        "mean": 17.7707207768634,
+        "std": 2.4615096024694623
+      },
+      "air_temp_c": {
+        "mean": 16.92405907575036,
+        "std": 1.8219862977991366
+      },
+      "wind_speed_ms": {
+        "mean": 13.258210869644886,
+        "std": 2.967631568653492
+      },
+      "wave_height_m": {
+        "mean": 1.028438450544215,
+        "std": 0.4179481929821769
+      },
+      "wave_period_s": {
+        "mean": 11.238192179426102,
+        "std": 1.6687440322511287
+      },
+      "month": {
+        "mean": 6.836002492029172,
+        "std": 3.1080207490167506
+      },
+      "day_of_year": {
+        "mean": 192.3067028255213,
+        "std": 94.53692175946435
+      },
+      "season_sin": {
+        "mean": -0.04816224326861461,
+        "std": 0.7113818609008504
+      },
+      "season_cos": {
+        "mean": -0.1529711693338222,
+        "std": 0.684289247239969
+      }
+    },
+    "training_rows": 27287,
+    "test_r2": 0.7005,
+    "test_rmse": 0.5552,
+    "cv_r2_mean": 0.5367,
+    "sensitivity": 0.661,
+    "specificity": 0.9745
+  },
+  {
+    "region": "los_angeles",
+    "features": [
+      "antecedent_fib_log10",
+      "days_since_last_sample",
+      "precipitation_mm",
+      "precipitation_48h_mm",
+      "precipitation_72h_mm",
+      "precipitation_7d_mm",
+      "log_precip_mm",
+      "log_precip_48h_mm",
+      "tide_level_m",
+      "tide_range_m",
+      "water_temp_c",
+      "air_temp_c",
+      "wind_speed_ms",
+      "wave_height_m",
+      "wave_period_s",
+      "month",
+      "day_of_year",
+      "season_sin",
+      "season_cos"
+    ],
+    "normalization_stats": {
+      "antecedent_fib_log10": {
+        "mean": 0.9086298815749221,
+        "std": 0.683026595903171
+      },
+      "days_since_last_sample": {
+        "mean": 7.461667364893171,
+        "std": 12.081628420335516
+      },
+      "precipitation_mm": {
+        "mean": 0.24570590699622957,
+        "std": 1.8274129069708973
+      },
+      "precipitation_48h_mm": {
+        "mean": 0.544993715961458,
+        "std": 3.280909460817695
+      },
+      "precipitation_72h_mm": {
+        "mean": 0.7084918307498953,
+        "std": 4.265182299063003
+      },
+      "precipitation_7d_mm": {
+        "mean": 1.089987431922916,
+        "std": 6.56181892163539
+      },
+      "log_precip_mm": {
+        "mean": 0.03375520389254521,
+        "std": 0.1460550474298143
+      },
+      "log_precip_48h_mm": {
+        "mean": 0.060335245470040016,
+        "std": 0.20653397161572296
+      },
+      "tide_level_m": {
+        "mean": 0.8349751780477587,
+        "std": 0.06117876248850167
+      },
+      "tide_range_m": {
+        "mean": 1.1999999999999997,
+        "std": 2.2205623364560934e-16
+      },
+      "water_temp_c": {
+        "mean": 17.911382817775987,
+        "std": 2.1182158195709775
+      },
+      "air_temp_c": {
+        "mean": 17.077021365731046,
+        "std": 2.2413190072321005
+      },
+      "wind_speed_ms": {
+        "mean": 13.124937159614579,
+        "std": 3.453797039487912
+      },
+      "wave_height_m": {
+        "mean": 0.9310054461667364,
+        "std": 0.30218233984599496
+      },
+      "wave_period_s": {
+        "mean": 11.791663175534143,
+        "std": 1.6285554890492961
+      },
+      "month": {
+        "mean": 6.757436112274822,
+        "std": 3.396438378099928
+      },
+      "day_of_year": {
+        "mean": 189.99801005446167,
+        "std": 103.16266247281142
+      },
+      "season_sin": {
+        "mean": -0.025445542507021295,
+        "std": 0.6940841594274537
+      },
+      "season_cos": {
+        "mean": -0.04266812348452042,
+        "std": 0.7182503892568367
+      }
+    },
+    "training_rows": 9548,
+    "test_r2": 0.5018,
+    "test_rmse": 0.4948,
+    "cv_r2_mean": 0.247,
+    "sensitivity": 0.3232,
+    "specificity": 0.9903
+  },
+  {
+    "region": "monterey",
+    "features": [
+      "antecedent_fib_log10",
+      "days_since_last_sample",
+      "precipitation_mm",
+      "precipitation_48h_mm",
+      "precipitation_72h_mm",
+      "precipitation_7d_mm",
+      "log_precip_mm",
+      "log_precip_48h_mm",
+      "tide_level_m",
+      "tide_range_m",
+      "water_temp_c",
+      "air_temp_c",
+      "wind_speed_ms",
+      "wave_height_m",
+      "wave_period_s",
+      "month",
+      "day_of_year",
+      "season_sin",
+      "season_cos"
+    ],
+    "normalization_stats": {
+      "antecedent_fib_log10": {
+        "mean": 1.2260777000585077,
+        "std": 0.46619223480267513
+      },
+      "days_since_last_sample": {
+        "mean": 10.126472411655302,
+        "std": 26.850567544034117
+      },
+      "precipitation_mm": {
+        "mean": 0.5314321140731556,
+        "std": 4.827568704627729
+      },
+      "precipitation_48h_mm": {
+        "mean": 0.7628022318660881,
+        "std": 5.453701370983378
+      },
+      "precipitation_72h_mm": {
+        "mean": 0.9916429014259144,
+        "std": 7.0898117822783915
+      },
+      "precipitation_7d_mm": {
+        "mean": 1.5256044637321762,
+        "std": 10.907402741966756
+      },
+      "log_precip_mm": {
+        "mean": 0.03713423691164266,
+        "std": 0.18488444969809925
+      },
+      "log_precip_48h_mm": {
+        "mean": 0.05688388012725381,
+        "std": 0.22951735304385404
+      },
+      "tide_level_m": {
+        "mean": 0.8507357925191156,
+        "std": 0.052868192895583276
+      },
+      "tide_range_m": {
+        "mean": 1.1999999999999997,
+        "std": 2.2211346664320874e-16
+      },
+      "water_temp_c": {
+        "mean": 14.110145013593556,
+        "std": 1.6000949041605792
+      },
+      "air_temp_c": {
+        "mean": 16.174023558586487,
+        "std": 2.030163604242415
+      },
+      "wind_speed_ms": {
+        "mean": 12.6957222566646,
+        "std": 2.4476479421815087
+      },
+      "wave_height_m": {
+        "mean": 1.4224550526968383,
+        "std": 0.5747334466812157
+      },
+      "wave_period_s": {
+        "mean": 11.024736515809053,
+        "std": 1.534236664296443
+      },
+      "month": {
+        "mean": 6.6336019838809674,
+        "std": 2.9170137918481447
+      },
+      "day_of_year": {
+        "mean": 185.5858648481091,
+        "std": 89.10193425740545
+      },
+      "season_sin": {
+        "mean": 0.013567344940160129,
+        "std": 0.7331583436052221
+      },
+      "season_cos": {
+        "mean": -0.21657136269404642,
+        "std": 0.6449672489123056
+      }
+    },
+    "training_rows": 1613,
+    "test_r2": 0.0589,
+    "test_rmse": 0.451,
+    "cv_r2_mean": 0.0732,
+    "sensitivity": 0.1923,
+    "specificity": 0.9832
+  },
+  {
+    "region": "north_bay",
+    "features": [
+      "antecedent_fib_log10",
+      "days_since_last_sample",
+      "precipitation_mm",
+      "precipitation_48h_mm",
+      "precipitation_72h_mm",
+      "precipitation_7d_mm",
+      "log_precip_mm",
+      "log_precip_48h_mm",
+      "tide_level_m",
+      "tide_range_m",
+      "water_temp_c",
+      "air_temp_c",
+      "wind_speed_ms",
+      "wave_height_m",
+      "wave_period_s",
+      "month",
+      "day_of_year",
+      "season_sin",
+      "season_cos"
+    ],
+    "normalization_stats": {
+      "antecedent_fib_log10": {
+        "mean": 1.1699405969809806,
+        "std": 0.3503502453874112
+      },
+      "days_since_last_sample": {
+        "mean": 8.243131868131869,
+        "std": 5.965739606284132
+      },
+      "precipitation_mm": {
+        "mean": 0.007554945054945055,
+        "std": 0.12449870762822152
+      },
+      "precipitation_48h_mm": {
+        "mean": 0.019093406593406595,
+        "std": 0.21364911536364806
+      },
+      "precipitation_72h_mm": {
+        "mean": 0.024821428571428578,
+        "std": 0.27774384997274243
+      },
+      "precipitation_7d_mm": {
+        "mean": 0.03818681318681319,
+        "std": 0.4272982307272961
+      },
+      "log_precip_mm": {
+        "mean": 0.0018799051822795626,
+        "std": 0.027997982397383426
+      },
+      "log_precip_48h_mm": {
+        "mean": 0.00457122724080398,
+        "std": 0.04465700196958294
+      },
+      "tide_level_m": {
+        "mean": 0.9494918154761903,
+        "std": 0.050246276857014306
+      },
+      "tide_range_m": {
+        "mean": 1.1999999999999997,
+        "std": 2.221972653795898e-16
+      },
+      "water_temp_c": {
+        "mean": 17.554166666666674,
+        "std": 7.110312492146874e-15
+      },
+      "air_temp_c": {
+        "mean": 16.67815934065934,
+        "std": 0.8910858664254349
+      },
+      "wind_speed_ms": {
+        "mean": 13.784340659340659,
+        "std": 3.612606211061308
+      },
+      "wave_height_m": {
+        "mean": 1.574642857142857,
+        "std": 0.7640163071987097
+      },
+      "wave_period_s": {
+        "mean": 10.283653846153847,
+        "std": 1.609183360501713
+      },
+      "month": {
+        "mean": 7.041208791208791,
+        "std": 1.9816086084584301
+      },
+      "day_of_year": {
+        "mean": 198.3543956043956,
+        "std": 62.012007599873776
+      },
+      "season_sin": {
+        "mean": -0.14097032579452512,
+        "std": 0.7397504685578534
+      },
+      "season_cos": {
+        "mean": -0.5008497772635764,
+        "std": 0.42784254579997777
+      }
+    },
+    "training_rows": 728,
+    "test_r2": -0.0938,
+    "test_rmse": 0.385,
+    "cv_r2_mean": -0.1914,
+    "sensitivity": null,
+    "specificity": 0.9855
+  },
+  {
+    "region": "san_diego",
+    "features": [
+      "antecedent_fib_log10",
+      "days_since_last_sample",
+      "precipitation_mm",
+      "precipitation_48h_mm",
+      "precipitation_72h_mm",
+      "precipitation_7d_mm",
+      "log_precip_mm",
+      "log_precip_48h_mm",
+      "tide_level_m",
+      "tide_range_m",
+      "water_temp_c",
+      "air_temp_c",
+      "wind_speed_ms",
+      "wave_height_m",
+      "wave_period_s",
+      "month",
+      "day_of_year",
+      "season_sin",
+      "season_cos"
+    ],
+    "normalization_stats": {
+      "antecedent_fib_log10": {
+        "mean": 2.289936060879751,
+        "std": 1.5175579199922733
+      },
+      "days_since_last_sample": {
+        "mean": 5.725352112676056,
+        "std": 7.3219960498975025
+      },
+      "precipitation_mm": {
+        "mean": 0.05432595573440644,
+        "std": 0.6499188393895051
+      },
+      "precipitation_48h_mm": {
+        "mean": 0.12164654594232059,
+        "std": 1.5205217816588106
+      },
+      "precipitation_72h_mm": {
+        "mean": 0.15814050972501678,
+        "std": 1.976678316156454
+      },
+      "precipitation_7d_mm": {
+        "mean": 0.24329309188464118,
+        "std": 3.041043563317621
+      },
+      "log_precip_mm": {
+        "mean": 0.007550361283230951,
+        "std": 0.07641767408919317
+      },
+      "log_precip_48h_mm": {
+        "mean": 0.011160586501390825,
+        "std": 0.10343691203961879
+      },
+      "tide_level_m": {
+        "mean": 0.9057409177285938,
+        "std": 0.05716657771975092
+      },
+      "tide_range_m": {
+        "mean": 1.2,
+        "std": 0.0
+      },
+      "water_temp_c": {
+        "mean": 19.456251913655848,
+        "std": 2.135276341055958
+      },
+      "air_temp_c": {
+        "mean": 16.94753521126761,
+        "std": 0.8464953514012505
+      },
+      "wind_speed_ms": {
+        "mean": 13.008735747820255,
+        "std": 0.9782195275918867
+      },
+      "wave_height_m": {
+        "mean": 0.9610731052984571,
+        "std": 0.1608206420445209
+      },
+      "wave_period_s": {
+        "mean": 11.356438631790743,
+        "std": 0.8257543983753457
+      },
+      "month": {
+        "mean": 7.129443326626426,
+        "std": 2.9122118147852523
+      },
+      "day_of_year": {
+        "mean": 201.23457411133467,
+        "std": 88.68262260276938
+      },
+      "season_sin": {
+        "mean": -0.0737524162660414,
+        "std": 0.7127126404202941
+      },
+      "season_cos": {
+        "mean": -0.21630990891126373,
+        "std": 0.6633025241140179
+      }
+    },
+    "training_rows": 5964,
+    "test_r2": 0.7862,
+    "test_rmse": 0.7014,
+    "cv_r2_mean": 0.5166,
+    "sensitivity": 0.9252,
+    "specificity": 0.9061
+  },
+  {
+    "region": "san_francisco",
+    "features": [
+      "antecedent_fib_log10",
+      "days_since_last_sample",
+      "precipitation_mm",
+      "precipitation_48h_mm",
+      "precipitation_72h_mm",
+      "precipitation_7d_mm",
+      "log_precip_mm",
+      "log_precip_48h_mm",
+      "tide_level_m",
+      "tide_range_m",
+      "water_temp_c",
+      "air_temp_c",
+      "wind_speed_ms",
+      "wave_height_m",
+      "wave_period_s",
+      "month",
+      "day_of_year",
+      "season_sin",
+      "season_cos"
+    ],
+    "normalization_stats": {
+      "antecedent_fib_log10": {
+        "mean": 1.3533664901843196,
+        "std": 0.6543987240740741
+      },
+      "days_since_last_sample": {
+        "mean": 8.09884959522795,
+        "std": 6.559617958678217
+      },
+      "precipitation_mm": {
+        "mean": 0.25824456753302083,
+        "std": 2.097474221692417
+      },
+      "precipitation_48h_mm": {
+        "mean": 0.5674051981252664,
+        "std": 3.913327638271194
+      },
+      "precipitation_72h_mm": {
+        "mean": 0.7376267575628462,
+        "std": 5.087325929752551
+      },
+      "precipitation_7d_mm": {
+        "mean": 1.1348103962505327,
+        "std": 7.826655276542388
+      },
+      "log_precip_mm": {
+        "mean": 0.0299492036045702,
+        "std": 0.15083366248069563
+      },
+      "log_precip_48h_mm": {
+        "mean": 0.047479729160401905,
+        "std": 0.20955614524624866
+      },
+      "tide_level_m": {
+        "mean": 0.8619503976707854,
+        "std": 0.05186401578770614
+      },
+      "tide_range_m": {
+        "mean": 1.2,
+        "std": 0.0
+      },
+      "water_temp_c": {
+        "mean": 14.78790892614854,
+        "std": 1.4746195511825542
+      },
+      "air_temp_c": {
+        "mean": 16.36484874307627,
+        "std": 1.706932609950405
+      },
+      "wind_speed_ms": {
+        "mean": 14.719897741798043,
+        "std": 3.936868639781623
+      },
+      "wave_height_m": {
+        "mean": 1.1890072432893055,
+        "std": 0.662694513540427
+      },
+      "wave_period_s": {
+        "mean": 9.939688964635703,
+        "std": 1.9940828359809184
+      },
+      "month": {
+        "mean": 6.75926714955262,
+        "std": 2.8006351991945104
+      },
+      "day_of_year": {
+        "mean": 189.6071580741372,
+        "std": 85.14431808319222
+      },
+      "season_sin": {
+        "mean": -0.08135746767930205,
+        "std": 0.7306455662382904
+      },
+      "season_cos": {
+        "mean": -0.263034440325568,
+        "std": 0.6250958700171473
+      }
+    },
+    "training_rows": 2347,
+    "test_r2": 0.35,
+    "test_rmse": 0.5444,
+    "cv_r2_mean": 0.2108,
+    "sensitivity": 0.3492,
+    "specificity": 0.9558
+  },
+  {
+    "region": "santa_barbara",
+    "features": [
+      "antecedent_fib_log10",
+      "days_since_last_sample",
+      "precipitation_mm",
+      "precipitation_48h_mm",
+      "precipitation_72h_mm",
+      "precipitation_7d_mm",
+      "log_precip_mm",
+      "log_precip_48h_mm",
+      "tide_level_m",
+      "tide_range_m",
+      "water_temp_c",
+      "air_temp_c",
+      "wind_speed_ms",
+      "wave_height_m",
+      "wave_period_s",
+      "month",
+      "day_of_year",
+      "season_sin",
+      "season_cos"
+    ],
+    "normalization_stats": {
+      "antecedent_fib_log10": {
+        "mean": 1.1513083673260416,
+        "std": 0.38296818053617776
+      },
+      "days_since_last_sample": {
+        "mean": 8.1957928802589,
+        "std": 6.010285136032421
+      },
+      "precipitation_mm": {
+        "mean": 0.2657766990291262,
+        "std": 1.9980144645070885
+      },
+      "precipitation_48h_mm": {
+        "mean": 0.48847087378640774,
+        "std": 3.788745683824513
+      },
+      "precipitation_72h_mm": {
+        "mean": 0.6350121359223301,
+        "std": 4.925369388971866
+      },
+      "precipitation_7d_mm": {
+        "mean": 0.9769417475728155,
+        "std": 7.577491367649026
+      },
+      "log_precip_mm": {
+        "mean": 0.026516199583173174,
+        "std": 0.15900130343687108
+      },
+      "log_precip_48h_mm": {
+        "mean": 0.03367639129572245,
+        "std": 0.1936213529886437
+      },
+      "tide_level_m": {
+        "mean": 0.8601929274541531,
+        "std": 0.05344651172719214
+      },
+      "tide_range_m": {
+        "mean": 1.2,
+        "std": 0.0
+      },
+      "water_temp_c": {
+        "mean": 17.571304406453734,
+        "std": 0.27374469574728977
+      },
+      "air_temp_c": {
+        "mean": 16.981674757281557,
+        "std": 1.6749807305746476
+      },
+      "wind_speed_ms": {
+        "mean": 13.400323624595469,
+        "std": 3.717487943370598
+      },
+      "wave_height_m": {
+        "mean": 1.1752265372168285,
+        "std": 0.47080687653170705
+      },
+      "wave_period_s": {
+        "mean": 10.430724110032363,
+        "std": 1.9505873933808051
+      },
+      "month": {
+        "mean": 6.880258899676376,
+        "std": 2.7859388970259276
+      },
+      "day_of_year": {
+        "mean": 193.46278317152104,
+        "std": 84.94022126297928
+      },
+      "season_sin": {
+        "mean": -0.08990572781609298,
+        "std": 0.7145458658630799
+      },
+      "season_cos": {
+        "mean": -0.27426381997485866,
+        "std": 0.6375668628887013
+      }
+    },
+    "training_rows": 2472,
+    "test_r2": 0.3699,
+    "test_rmse": 0.311,
+    "cv_r2_mean": 0.185,
+    "sensitivity": 0.52,
+    "specificity": 0.9936
+  },
+  {
+    "region": "santa_monica",
+    "features": [
+      "antecedent_fib_log10",
+      "days_since_last_sample",
+      "precipitation_mm",
+      "precipitation_48h_mm",
+      "precipitation_72h_mm",
+      "precipitation_7d_mm",
+      "log_precip_mm",
+      "log_precip_48h_mm",
+      "tide_level_m",
+      "tide_range_m",
+      "water_temp_c",
+      "air_temp_c",
+      "wind_speed_ms",
+      "wave_height_m",
+      "wave_period_s",
+      "month",
+      "day_of_year",
+      "season_sin",
+      "season_cos"
+    ],
+    "normalization_stats": {
+      "antecedent_fib_log10": {
+        "mean": 1.4224165620441764,
+        "std": 0.6504516689618274
+      },
+      "days_since_last_sample": {
+        "mean": 4.978114842903575,
+        "std": 6.564190556276527
+      },
+      "precipitation_mm": {
+        "mean": 0.41128927410617555,
+        "std": 3.7019249502673635
+      },
+      "precipitation_48h_mm": {
+        "mean": 0.7882123510292525,
+        "std": 6.006683872008937
+      },
+      "precipitation_72h_mm": {
+        "mean": 1.0246760563380282,
+        "std": 7.808689033611619
+      },
+      "precipitation_7d_mm": {
+        "mean": 1.576424702058505,
+        "std": 12.013367744017874
+      },
+      "log_precip_mm": {
+        "mean": 0.028179808489663002,
+        "std": 0.1751414463248511
+      },
+      "log_precip_48h_mm": {
+        "mean": 0.043367875194272376,
+        "std": 0.22727586993019225
+      },
+      "tide_level_m": {
+        "mean": 0.8526555706031057,
+        "std": 0.05886066761316239
+      },
+      "tide_range_m": {
+        "mean": 1.2,
+        "std": 0.0
+      },
+      "water_temp_c": {
+        "mean": 18.23880916542123,
+        "std": 2.3331834543053884
+      },
+      "air_temp_c": {
+        "mean": 17.131722643553633,
+        "std": 1.817346210436449
+      },
+      "wind_speed_ms": {
+        "mean": 13.150465872156014,
+        "std": 2.313188310542233
+      },
+      "wave_height_m": {
+        "mean": 0.9329144095341277,
+        "std": 0.3172205025620554
+      },
+      "wave_period_s": {
+        "mean": 11.25836403033586,
+        "std": 1.6703810245938364
+      },
+      "month": {
+        "mean": 6.673022751895991,
+        "std": 3.2224152396495103
+      },
+      "day_of_year": {
+        "mean": 187.69425785482125,
+        "std": 97.86079432907337
+      },
+      "season_sin": {
+        "mean": -0.02978428515890295,
+        "std": 0.7170231137327071
+      },
+      "season_cos": {
+        "mean": -0.10127551842680169,
+        "std": 0.6891649559881791
+      }
+    },
+    "training_rows": 4615,
+    "test_r2": 0.4307,
+    "test_rmse": 0.4985,
+    "cv_r2_mean": 0.1947,
+    "sensitivity": 0.4483,
+    "specificity": 0.9653
+  }
+]

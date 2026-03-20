@@ -1,0 +1,107 @@
+{
+  "features": [
+    "antecedent_fib_log10",
+    "days_since_last_sample",
+    "precipitation_mm",
+    "precipitation_48h_mm",
+    "precipitation_72h_mm",
+    "precipitation_7d_mm",
+    "log_precip_mm",
+    "log_precip_48h_mm",
+    "tide_level_m",
+    "tide_range_m",
+    "water_temp_c",
+    "air_temp_c",
+    "wind_speed_ms",
+    "wave_height_m",
+    "wave_period_s",
+    "month",
+    "day_of_year",
+    "season_sin",
+    "season_cos"
+  ],
+  "normalization_stats": {
+    "antecedent_fib_log10": {
+      "mean": 1.2260777000585077,
+      "std": 0.46619223480267513
+    },
+    "days_since_last_sample": {
+      "mean": 10.126472411655302,
+      "std": 26.850567544034117
+    },
+    "precipitation_mm": {
+      "mean": 0.5314321140731556,
+      "std": 4.827568704627729
+    },
+    "precipitation_48h_mm": {
+      "mean": 0.7628022318660881,
+      "std": 5.453701370983378
+    },
+    "precipitation_72h_mm": {
+      "mean": 0.9916429014259144,
+      "std": 7.0898117822783915
+    },
+    "precipitation_7d_mm": {
+      "mean": 1.5256044637321762,
+      "std": 10.907402741966756
+    },
+    "log_precip_mm": {
+      "mean": 0.03713423691164266,
+      "std": 0.18488444969809925
+    },
+    "log_precip_48h_mm": {
+      "mean": 0.05688388012725381,
+      "std": 0.22951735304385404
+    },
+    "tide_level_m": {
+      "mean": 0.8507357925191156,
+      "std": 0.052868192895583276
+    },
+    "tide_range_m": {
+      "mean": 1.1999999999999997,
+      "std": 2.2211346664320874e-16
+    },
+    "water_temp_c": {
+      "mean": 14.110145013593556,
+      "std": 1.6000949041605792
+    },
+    "air_temp_c": {
+      "mean": 16.174023558586487,
+      "std": 2.030163604242415
+    },
+    "wind_speed_ms": {
+      "mean": 12.6957222566646,
+      "std": 2.4476479421815087
+    },
+    "wave_height_m": {
+      "mean": 1.4224550526968383,
+      "std": 0.5747334466812157
+    },
+    "wave_period_s": {
+      "mean": 11.024736515809053,
+      "std": 1.534236664296443
+    },
+    "month": {
+      "mean": 6.6336019838809674,
+      "std": 2.9170137918481447
+    },
+    "day_of_year": {
+      "mean": 185.5858648481091,
+      "std": 89.10193425740545
+    },
+    "season_sin": {
+      "mean": 0.013567344940160129,
+      "std": 0.7331583436052221
+    },
+    "season_cos": {
+      "mean": -0.21657136269404642,
+      "std": 0.6449672489123056
+    }
+  },
+  "training_rows": 1613,
+  "test_r2": 0.0589,
+  "test_rmse": 0.451,
+  "cv_r2_mean": 0.0732,
+  "sensitivity": 0.1923,
+  "specificity": 0.9832
+}

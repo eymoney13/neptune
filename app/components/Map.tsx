@@ -5,7 +5,43 @@ import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { StationSummary } from '@/lib/types';
-import { cfuToScore, getColor } from '@/lib/platform-utils';
+import { getColorFromMpn, getTierFromMpn, type SiteData } from '@/lib/platform-utils';
+
+function generateNarrative(site: SiteData): string {
+  const tier = getTierFromMpn(site.fib);
+  const parts: string[] = [];
+
+  if (tier.label === 'Good') {
+    parts.push(`Bacteria levels are low at ${site.fib} MPN, well within safe limits for swimming and water activities.`);
+  } else if (tier.label === 'Caution') {
+    parts.push(`Bacteria levels are moderate at ${site.fib} MPN — not ideal for sensitive groups, but most beachgoers should be okay with caution.`);
+  } else {
+    parts.push(`Bacteria levels are elevated at ${site.fib} MPN, above the 104 MPN threshold. Swimming and direct water contact are not recommended right now.`);
+  }
+
+  if (site.rainfall48h > 0.3) {
+    parts.push(`Recent rainfall (${site.rainfall48h}mm in the last 48h) is likely contributing to runoff and higher bacteria counts.`);
+  } else if (site.rainfall48h > 0) {
+    parts.push(`Light rainfall recently (${site.rainfall48h}mm), though not enough to be a major concern.`);
+  } else {
+    parts.push('No recent rainfall, which helps keep runoff-related bacteria low.');
+  }
+
+  if (site.drainProximity === 'nearby') {
+    parts.push('There is a storm drain nearby — worth noting after any rain events.');
+  }
+
+  const tidePart = site.tidePhase === 'high'
+    ? 'Tide is high right now, which generally helps with water circulation.'
+    : site.tidePhase === 'low'
+      ? 'Low tide can concentrate bacteria near shore — keep that in mind.'
+      : 'Tide is mid-range and rising, a decent window for water quality.';
+  parts.push(tidePart);
+
+  parts.push(`Conditions: ${site.wind} winds, ${site.swell} swell, water temp ${site.temp}°F.`);
+
+  return parts.join(' ');
+}
 
 // Fix for default marker icons in Next.js
 const iconRetinaUrl = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png';
@@ -21,6 +57,7 @@ L.Icon.Default.mergeOptions({
 
 interface MapProps {
   stations: StationSummary[];
+  sites?: SiteData[];
   selectedStation?: StationSummary | null;
   onStationSelect?: (station: StationSummary) => void;
   viewMode?: 'nowcast' | 'forecast';
@@ -44,6 +81,7 @@ function MapController({ center }: { center: [number, number] }) {
 
 export default function Map({
   stations,
+  sites,
   selectedStation,
   onStationSelect,
   viewMode = 'nowcast',
@@ -55,6 +93,11 @@ export default function Map({
   const mapRef = useRef<L.Map | null>(null);
   const [localViewMode, setLocalViewMode] = useState<'nowcast' | 'forecast'>(viewMode);
   const [localForecastDays, setLocalForecastDays] = useState(forecastDays);
+
+  const siteByCode: Record<string, SiteData> = {};
+  if (sites) {
+    sites.forEach((s) => { siteByCode[s.stationCode] = s; });
+  }
 
   // Calculate center from stations or default to California coast
   const getCenter = (): [number, number] => {
@@ -72,8 +115,7 @@ export default function Map({
   };
 
   const createCustomIcon = (result: number) => {
-    const score = cfuToScore(result);
-    const color = getColor(score);
+    const color = getColorFromMpn(result);
     return L.divIcon({
       className: 'custom-marker',
       html: `<div style="
@@ -156,25 +198,34 @@ export default function Map({
             >
               <Popup>
                 {(() => {
-                  const score = cfuToScore(station.latestResult);
-                  const color = getColor(score);
-                  const tier = score >= 95 ? 'Excellent' : score >= 85 ? 'Good' : score >= 70 ? 'Fair' : score >= 50 ? 'Caution' : score >= 30 ? 'Poor' : 'Unsafe';
+                  const site = siteByCode[station.code];
+                  const mpn = site ? site.fib : station.latestResult;
+                  const tier = getTierFromMpn(mpn);
+                  const color = tier.color;
                   return (
                     <div
-                      className="p-3 min-w-[200px] rounded-lg border-2"
+                      className="p-3 rounded-lg border-2"
                       style={{
                         backgroundColor: `${color}15`,
                         borderColor: `${color}40`,
+                        maxWidth: 280,
                       }}
                     >
-                      <h3 className="font-semibold text-sm mb-2" style={{ color: '#0a0d18' }}>
+                      <h3 className="font-semibold text-sm mb-1" style={{ color: '#0a0d18' }}>
                         {station.name}
                       </h3>
-                      <div className="text-xs space-y-1" style={{ color: '#1a1e2e' }}>
-                        <p>Latest Test Date: {new Date(station.latestDate).toLocaleDateString()}</p>
-                        <p>Result: {station.latestResult.toFixed(1)} CFU</p>
-                        <p>30 day avg: {station.avg30Day.toFixed(1)}</p>
-                      </div>
+                      <p className="text-xs font-bold mb-2" style={{ color }}>
+                        {tier.label} — {tier.desc}
+                      </p>
+                      {site ? (
+                        <p className="text-xs leading-relaxed" style={{ color: '#333' }}>
+                          {generateNarrative(site)}
+                        </p>
+                      ) : (
+                        <p className="text-xs" style={{ color: '#666' }}>
+                          Tap for full details.
+                        </p>
+                      )}
                     </div>
                   );
                 })()}

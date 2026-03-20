@@ -1,0 +1,118 @@
+{
+  "features": [
+    "antecedent_fib_log10",
+    "days_since_last_sample",
+    "precipitation_mm",
+    "precipitation_48h_mm",
+    "precipitation_72h_mm",
+    "precipitation_7d_mm",
+    "log_precip_mm",
+    "log_precip_48h_mm",
+    "tide_level_m",
+    "tide_range_m",
+    "water_temp_c",
+    "air_temp_c",
+    "wind_speed_ms",
+    "wave_height_m",
+    "wave_period_s",
+    "month",
+    "day_of_year",
+    "season_sin",
+    "season_cos"
+  ],
+  "normalization_stats": {
+    "antecedent_fib_log10": {
+      "mean": 1.17971789762523,
+      "std": 0.5155761313524889
+    },
+    "days_since_last_sample": {
+      "mean": 3.3256997455470736,
+      "std": 4.103519933747721
+    },
+    "precipitation_mm": {
+      "mean": 0.8706361323155216,
+      "std": 5.14388865364295
+    },
+    "precipitation_48h_mm": {
+      "mean": 1.6159287531806614,
+      "std": 7.772938965272666
+    },
+    "precipitation_72h_mm": {
+      "mean": 2.243256997455471,
+      "std": 9.502443762092964
+    },
+    "precipitation_7d_mm": {
+      "mean": 5.459491094147583,
+      "std": 16.931219664677172
+    },
+    "log_precip_mm": {
+      "mean": 0.061022965047092134,
+      "std": 0.25375936265769444
+    },
+    "log_precip_48h_mm": {
+      "mean": 0.09883396626201736,
+      "std": 0.32829474228862615
+    },
+    "tide_level_m": {
+      "mean": 0.8343515055131467,
+      "std": 0.06037186531859288
+    },
+    "tide_range_m": {
+      "mean": 1.6335287531806615,
+      "std": 0.42717086258054066
+    },
+    "water_temp_c": {
+      "mean": 17.283047427034965,
+      "std": 2.3634806181134573
+    },
+    "air_temp_c": {
+      "mean": 16.76124681933842,
+      "std": 3.3221437700322465
+    },
+    "wind_speed_ms": {
+      "mean": 20.199063613231555,
+      "std": 4.932724244370672
+    },
+    "wave_height_m": {
+      "mean": 1.2204478371501273,
+      "std": 0.5565451170967272
+    },
+    "wave_period_s": {
+      "mean": 11.041155464681934,
+      "std": 3.8688643297633316
+    },
+    "month": {
+      "mean": 6.669720101781171,
+      "std": 3.376166038750133
+    },
+    "day_of_year": {
+      "mean": 187.5643765903308,
+      "std": 103.29751365385269
+    },
+    "season_sin": {
+      "mean": -0.026688120837306466,
+      "std": 0.7058729723732278
+    },
+    "season_cos": {
+      "mean": -0.03102148578921859,
+      "std": 0.7075147142118661
+    }
+  },
+  "training_rows": 1965,
+  "test_r2": 0.4508,
+  "test_rmse": 0.3628,
+  "cv_r2_mean": 0.4395,
+  "sensitivity": 0.5833,
+  "specificity": 0.9783,
+  "station_filter": "Hermosa Beach",
+  "data_sources": [
+    "CKAN",
+    "NOAA_CO-OPS",
+    "NOAA_GHCN_LAX_calibrated",
+    "CDIP_092"
+  ],
+  "calibration": {
+    "wind_speed": "GHCN\u00d75.04+3.57\u2192Open-Meteo_scale",
+    "air_temp": "GHCN-0.84"
+  }
+}
